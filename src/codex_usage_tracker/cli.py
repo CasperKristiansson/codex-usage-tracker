@@ -1,4 +1,5 @@
 import argparse
+import os
 import sys
 from dataclasses import dataclass
 from datetime import datetime
@@ -20,7 +21,7 @@ from .report import (
 )
 from .rollout import RolloutContext, iter_rollout_files, parse_rollout_line
 from .store import UsageEvent, UsageStore
-from .pdf_report import default_pricing, generate_pdf_report
+from importlib import resources
 
 
 @dataclass
@@ -255,13 +256,13 @@ def build_parser() -> argparse.ArgumentParser:
     status_parser.add_argument("--db", type=Path, default=None)
     status_parser.add_argument("--rollouts", type=Path, default=None)
 
-    pdf_parser = subparsers.add_parser("pdf", help="Generate a PDF usage report")
-    pdf_parser.add_argument("--db", type=Path, default=None)
-    pdf_parser.add_argument("--rollouts", type=Path, default=None)
-    pdf_parser.add_argument("--out", type=Path, required=True)
-    pdf_parser.add_argument("--last", type=str, default=None)
-    pdf_parser.add_argument("--from", dest="from_date", type=str, default=None)
-    pdf_parser.add_argument("--to", dest="to_date", type=str, default=None)
+    web_parser = subparsers.add_parser("web", help="Launch the Streamlit dashboard")
+    web_parser.add_argument("--db", type=Path, default=None)
+    web_parser.add_argument("--rollouts", type=Path, default=None)
+    web_parser.add_argument("--last", type=str, default=None)
+    web_parser.add_argument("--from", dest="from_date", type=str, default=None)
+    web_parser.add_argument("--to", dest="to_date", type=str, default=None)
+    web_parser.add_argument("--port", type=int, default=None)
 
     clear_parser = subparsers.add_parser("clear-db", help="Delete the local usage DB")
     clear_parser.add_argument("--db", type=Path, default=None)
@@ -352,36 +353,31 @@ def main() -> None:
         store.close()
         return
 
-    if args.command == "pdf":
-        now = datetime.now(STOCKHOLM_TZ)
-        start = None
-        end = None
+    if args.command == "web":
+        if args.db:
+            os.environ["CODEX_USAGE_DB"] = str(args.db)
+        if args.rollouts:
+            os.environ["CODEX_USAGE_ROLLOUTS"] = str(args.rollouts)
         if args.last:
-            delta = parse_last(args.last)
-            start = now - delta
-            end = now
-        else:
-            if args.from_date:
-                start = to_local(parse_datetime(args.from_date))
-            if args.to_date:
-                end = to_local(parse_datetime(args.to_date))
-
-        _ingest_for_range(args, store, start, end)
-        events = _load_usage_events(store)
-        events = _filter_range(events, start, end)
-        latest = store.latest_status()
-        pricing = default_pricing()
-        generate_pdf_report(
-            events,
-            dict(latest) if latest else None,
-            args.out,
-            start,
-            end,
-            pricing,
-        )
-        print(f"Wrote {args.out}")
+            os.environ["CODEX_USAGE_LAST"] = str(args.last)
+        if args.from_date:
+            os.environ["CODEX_USAGE_FROM"] = str(args.from_date)
+        if args.to_date:
+            os.environ["CODEX_USAGE_TO"] = str(args.to_date)
         store.close()
-        return
+        try:
+            from streamlit.web import cli as stcli
+        except Exception as exc:
+            raise RuntimeError(
+                "Streamlit is required for the web dashboard. Install with: pip install streamlit"
+            ) from exc
+
+        app_path = resources.files("codex_usage_tracker") / "web_app.py"
+        argv = ["streamlit", "run", str(app_path)]
+        if args.port:
+            argv += ["--server.port", str(args.port)]
+        sys.argv = argv
+        sys.exit(stcli.main())
 
 
 if __name__ == "__main__":
