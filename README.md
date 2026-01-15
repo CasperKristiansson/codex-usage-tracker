@@ -9,6 +9,8 @@ Local-first tracker for OpenAI Codex CLI token usage. It ingests Codex rollout J
 - Generates daily/weekly/monthly summaries and breakdowns by directory/model/session.
 - Exports raw events to JSON or CSV.
 
+![Codex Usage Tracker dashboard](docs/image.png)
+
 ## Privacy
 This tool **does not store prompts, responses, or message text**. It only stores numeric counts and minimal metadata (model, directory, session id, version, timestamps).
 

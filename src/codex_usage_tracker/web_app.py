@@ -294,6 +294,7 @@ def _inject_css() -> None:
             position: relative;
             overflow: hidden;
             animation: fadeUp 0.6s ease both;
+            margin-bottom: 1.1rem;
         }
 
         .hero-title {
