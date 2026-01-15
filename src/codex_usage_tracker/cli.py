@@ -1,7 +1,6 @@
 import argparse
 import os
 import pty
-import select
 import sys
 from dataclasses import dataclass
 from datetime import datetime
@@ -129,41 +128,21 @@ def run_wrapper(cmd: Iterable[str], store: UsageStore, cwd: Optional[str]) -> in
     context = CaptureContext(directory=cwd)
     parser = OutputParser(store, context)
 
-    pid, fd = pty.fork()
-    if pid == 0:
-        if cwd:
-            os.chdir(cwd)
-        os.execvp(cmd[0], list(cmd))
+    def master_read(fd: int) -> bytes:
+        data = os.read(fd, 1024)
+        if data:
+            parser.feed(data)
+        return data
 
+    original_cwd = os.getcwd()
+    if cwd:
+        os.chdir(cwd)
     try:
-        while True:
-            rlist = [fd, sys.stdin]
-            ready, _, _ = select.select(rlist, [], [])
-            if fd in ready:
-                try:
-                    data = os.read(fd, 1024)
-                except OSError:
-                    data = b""
-                if not data:
-                    break
-                sys.stdout.buffer.write(data)
-                sys.stdout.buffer.flush()
-                parser.feed(data)
-            if sys.stdin in ready:
-                try:
-                    data = os.read(sys.stdin.fileno(), 1024)
-                except OSError:
-                    data = b""
-                if not data:
-                    try:
-                        os.close(fd)
-                    except OSError:
-                        pass
-                    break
-                os.write(fd, data)
+        status = pty.spawn(list(cmd), master_read=master_read)
     finally:
+        if cwd:
+            os.chdir(original_cwd)
         parser.feed(b"\n")
-        _, status = os.waitpid(pid, 0)
 
     if os.WIFEXITED(status):
         return os.WEXITSTATUS(status)
