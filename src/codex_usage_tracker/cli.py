@@ -3,7 +3,7 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Iterable, Optional
+from typing import Dict, Iterable, Optional, Tuple
 
 from .platform import default_db_path, default_rollouts_dir
 from .report import (
@@ -24,17 +24,79 @@ from .store import UsageEvent, UsageStore
 
 @dataclass
 class IngestStats:
-    files: int = 0
+    files_total: int = 0
+    files_parsed: int = 0
+    files_skipped: int = 0
     lines: int = 0
     events: int = 0
-    skipped: int = 0
     errors: int = 0
 
 
-def ingest_rollouts(path: Path, store: UsageStore) -> IngestStats:
+class ProgressPrinter:
+    def __init__(self, total: int) -> None:
+        self.total = total
+        self._last_len = 0
+        self._enabled = sys.stderr.isatty()
+
+    def update(self, current: int, stats: IngestStats, file_path: Optional[Path] = None) -> None:
+        if not self._enabled:
+            return
+        parts = [
+            f"Ingesting rollouts: {current}/{self.total} files",
+            f"parsed {stats.files_parsed}",
+            f"skipped {stats.files_skipped}",
+            f"events {stats.events}",
+            f"errors {stats.errors}",
+        ]
+        if file_path is not None:
+            parts.append(f"{file_path.name}")
+        line = " | ".join(parts)
+        padded = line.ljust(self._last_len)
+        sys.stderr.write("\r" + padded)
+        sys.stderr.flush()
+        self._last_len = len(line)
+
+    def finish(self) -> None:
+        if self._enabled and self._last_len:
+            sys.stderr.write("\n")
+            sys.stderr.flush()
+
+
+def _select_rollout_files(
+    root: Path,
+    start: Optional[datetime],
+    end: Optional[datetime],
+) -> Iterable[Tuple[Path, int, int, datetime]]:
+    for path in iter_rollout_files(root):
+        try:
+            stat = path.stat()
+        except OSError:
+            continue
+        mtime = datetime.fromtimestamp(stat.st_mtime, tz=STOCKHOLM_TZ)
+        if start and mtime < start:
+            continue
+        if end and mtime > end:
+            continue
+        yield path, stat.st_mtime_ns, stat.st_size, mtime
+
+
+def ingest_rollouts(
+    path: Path,
+    store: UsageStore,
+    start: Optional[datetime],
+    end: Optional[datetime],
+) -> IngestStats:
     stats = IngestStats()
-    for file_path in iter_rollout_files(path):
-        stats.files += 1
+    files = list(_select_rollout_files(path, start, end))
+    stats.files_total = len(files)
+    progress = ProgressPrinter(stats.files_total)
+
+    for idx, (file_path, mtime_ns, size, _) in enumerate(files, start=1):
+        if not store.file_needs_ingest(str(file_path), mtime_ns, size):
+            stats.files_skipped += 1
+            progress.update(idx, stats, file_path)
+            continue
+
         context = RolloutContext()
         try:
             with file_path.open("r", encoding="utf-8") as handle:
@@ -49,7 +111,6 @@ def ingest_rollouts(path: Path, store: UsageStore) -> IngestStats:
                         stats.errors += 1
                         continue
                     if parsed is None:
-                        stats.skipped += 1
                         continue
 
                     event = UsageEvent(
@@ -80,6 +141,14 @@ def ingest_rollouts(path: Path, store: UsageStore) -> IngestStats:
                     stats.events += 1
         except OSError:
             stats.errors += 1
+            progress.update(idx, stats, file_path)
+            continue
+
+        store.mark_file_ingested(str(file_path), mtime_ns, size)
+        stats.files_parsed += 1
+        progress.update(idx, stats, file_path)
+
+    progress.finish()
     return stats
 
 
@@ -155,16 +224,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="codex-track")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    ingest_parser = subparsers.add_parser(
-        "ingest-rollouts", help="Ingest Codex rollout JSONL files"
-    )
-    ingest_parser.add_argument("--db", type=Path, default=None)
-    ingest_parser.add_argument("--path", type=Path, default=None)
-
     report_parser = subparsers.add_parser("report", help="Aggregate usage reports")
     report_parser.add_argument("--db", type=Path, default=None)
     report_parser.add_argument("--rollouts", type=Path, default=None)
-    report_parser.add_argument("--no-ingest", action="store_true")
     report_parser.add_argument("--last", type=str, default=None)
     report_parser.add_argument("--from", dest="from_date", type=str, default=None)
     report_parser.add_argument("--to", dest="to_date", type=str, default=None)
@@ -181,7 +243,6 @@ def build_parser() -> argparse.ArgumentParser:
     export_parser = subparsers.add_parser("export", help="Export raw events")
     export_parser.add_argument("--db", type=Path, default=None)
     export_parser.add_argument("--rollouts", type=Path, default=None)
-    export_parser.add_argument("--no-ingest", action="store_true")
     export_parser.add_argument("--format", choices=["json", "csv"], default="json")
     export_parser.add_argument("--out", type=Path, required=True)
 
@@ -190,16 +251,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     status_parser.add_argument("--db", type=Path, default=None)
     status_parser.add_argument("--rollouts", type=Path, default=None)
-    status_parser.add_argument("--no-ingest", action="store_true")
 
     return parser
 
 
-def _maybe_ingest(args: argparse.Namespace, store: UsageStore) -> None:
-    if getattr(args, "no_ingest", False):
-        return
+def _ingest_for_range(
+    args: argparse.Namespace,
+    store: UsageStore,
+    start: Optional[datetime],
+    end: Optional[datetime],
+) -> None:
     rollouts_dir = args.rollouts if args.rollouts else default_rollouts_dir()
-    ingest_rollouts(rollouts_dir, store)
+    ingest_rollouts(rollouts_dir, store, start, end)
 
 
 def main() -> None:
@@ -208,24 +271,7 @@ def main() -> None:
     db_path = args.db if args.db else default_db_path()
     store = UsageStore(db_path)
 
-    if args.command == "ingest-rollouts":
-        rollouts_dir = args.path if args.path else default_rollouts_dir()
-        stats = ingest_rollouts(rollouts_dir, store)
-        print(
-            "Ingested {files} files, {lines} lines, {events} token events (skipped {skipped}, errors {errors}).".format(
-                files=stats.files,
-                lines=stats.lines,
-                events=stats.events,
-                skipped=stats.skipped,
-                errors=stats.errors,
-            )
-        )
-        store.close()
-        return
-
     if args.command == "report":
-        _maybe_ingest(args, store)
-        events = _load_usage_events(store)
         now = datetime.now(STOCKHOLM_TZ)
         start = None
         end = None
@@ -239,6 +285,8 @@ def main() -> None:
             if args.to_date:
                 end = to_local(parse_datetime(args.to_date))
 
+        _ingest_for_range(args, store, start, end)
+        events = _load_usage_events(store)
         events = _filter_range(events, start, end)
         rows = aggregate(events, args.group, args.by)
         include_group = args.by is not None
@@ -253,7 +301,7 @@ def main() -> None:
         return
 
     if args.command == "export":
-        _maybe_ingest(args, store)
+        _ingest_for_range(args, store, None, None)
         rows = [dict(row) for row in store.iter_events()]
         if args.format == "json":
             output = export_events_json(rows)
@@ -264,7 +312,7 @@ def main() -> None:
         return
 
     if args.command == "status":
-        _maybe_ingest(args, store)
+        _ingest_for_range(args, store, None, None)
         row = store.latest_status()
         if not row:
             print("No usage data captured yet.")

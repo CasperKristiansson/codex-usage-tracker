@@ -24,5 +24,12 @@ The tracker stores append-only events in SQLite. Each row represents a token usa
 - `codex_version` (TEXT): Codex CLI version from `/status`.
 - `source` (TEXT): capture source (rollout file path).
 
+## ingestion_files table
+Tracks which rollout files have already been parsed so repeated reports only parse new/changed files.
+- `path` (TEXT): rollout file path.
+- `mtime_ns` (INTEGER): last modified time (nanoseconds since epoch).
+- `size` (INTEGER): file size in bytes.
+- `last_ingested_at` (TEXT): ISO timestamp when the file was last ingested.
+
 ## Privacy
 All fields are numeric usage counters or minimal metadata (model, directory, session id). No prompt/response contents or message text are stored.

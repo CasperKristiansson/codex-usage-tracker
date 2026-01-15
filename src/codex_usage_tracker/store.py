@@ -1,4 +1,5 @@
 import sqlite3
+from datetime import datetime
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Optional
@@ -48,6 +49,16 @@ class UsageStore:
             CREATE TABLE IF NOT EXISTS meta (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ingestion_files (
+                path TEXT PRIMARY KEY,
+                mtime_ns INTEGER NOT NULL,
+                size INTEGER NOT NULL,
+                last_ingested_at TEXT NOT NULL
             )
             """
         )
@@ -200,3 +211,28 @@ class UsageStore:
             """
         )
         return cur.fetchone()
+
+    def file_needs_ingest(self, path: str, mtime_ns: int, size: int) -> bool:
+        cur = self.conn.execute(
+            "SELECT mtime_ns, size FROM ingestion_files WHERE path = ?",
+            (path,),
+        )
+        row = cur.fetchone()
+        if row is None:
+            return True
+        return row["mtime_ns"] != mtime_ns or row["size"] != size
+
+    def mark_file_ingested(self, path: str, mtime_ns: int, size: int) -> None:
+        now = datetime.now().isoformat()
+        self.conn.execute(
+            """
+            INSERT INTO ingestion_files (path, mtime_ns, size, last_ingested_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(path) DO UPDATE SET
+                mtime_ns = excluded.mtime_ns,
+                size = excluded.size,
+                last_ingested_at = excluded.last_ingested_at
+            """,
+            (path, mtime_ns, size, now),
+        )
+        self.conn.commit()

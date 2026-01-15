@@ -19,19 +19,11 @@ python -m pip install -e .
 ```
 
 ## Quickstart
-Ingest rollouts (default `~/.codex/sessions`):
-```bash
-codex-track ingest-rollouts
-```
+Reports and exports automatically ingest new or updated rollout files under `~/.codex/sessions`, showing a progress line while they sync. When you pass `--last` or `--from/--to`, only rollout files modified in that range are scanned.
 
-Generate a 7-day report (auto-ingests rollouts by default):
+Generate a 7-day report:
 ```bash
 codex-track report --last 7d
-```
-
-Skip ingestion if you already synced:
-```bash
-codex-track report --last 7d --no-ingest
 ```
 
 Export raw events to CSV:
