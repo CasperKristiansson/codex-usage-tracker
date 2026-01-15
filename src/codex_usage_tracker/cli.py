@@ -20,6 +20,7 @@ from .report import (
 )
 from .rollout import RolloutContext, iter_rollout_files, parse_rollout_line
 from .store import UsageEvent, UsageStore
+from .pdf_report import default_pricing, generate_pdf_report
 
 
 @dataclass
@@ -254,6 +255,18 @@ def build_parser() -> argparse.ArgumentParser:
     status_parser.add_argument("--db", type=Path, default=None)
     status_parser.add_argument("--rollouts", type=Path, default=None)
 
+    pdf_parser = subparsers.add_parser("pdf", help="Generate a PDF usage report")
+    pdf_parser.add_argument("--db", type=Path, default=None)
+    pdf_parser.add_argument("--rollouts", type=Path, default=None)
+    pdf_parser.add_argument("--out", type=Path, required=True)
+    pdf_parser.add_argument("--last", type=str, default=None)
+    pdf_parser.add_argument("--from", dest="from_date", type=str, default=None)
+    pdf_parser.add_argument("--to", dest="to_date", type=str, default=None)
+
+    clear_parser = subparsers.add_parser("clear-db", help="Delete the local usage DB")
+    clear_parser.add_argument("--db", type=Path, default=None)
+    clear_parser.add_argument("--yes", action="store_true")
+
     return parser
 
 
@@ -272,6 +285,21 @@ def main() -> None:
     args = parser.parse_args()
     db_path = args.db if args.db else default_db_path()
     store = UsageStore(db_path)
+
+    if args.command == "clear-db":
+        path = args.db if args.db else default_db_path()
+        if not args.yes:
+            confirm = input(f"Delete {path}? Type 'delete' to confirm: ")
+            if confirm.strip().lower() != "delete":
+                print("Aborted.")
+                return
+        store.close()
+        if path.exists():
+            path.unlink()
+            print(f"Deleted {path}")
+        else:
+            print(f"No database found at {path}")
+        return
 
     if args.command == "report":
         now = datetime.now(STOCKHOLM_TZ)
@@ -321,6 +349,37 @@ def main() -> None:
             store.close()
             return
         _print_status(dict(row))
+        store.close()
+        return
+
+    if args.command == "pdf":
+        now = datetime.now(STOCKHOLM_TZ)
+        start = None
+        end = None
+        if args.last:
+            delta = parse_last(args.last)
+            start = now - delta
+            end = now
+        else:
+            if args.from_date:
+                start = to_local(parse_datetime(args.from_date))
+            if args.to_date:
+                end = to_local(parse_datetime(args.to_date))
+
+        _ingest_for_range(args, store, start, end)
+        events = _load_usage_events(store)
+        events = _filter_range(events, start, end)
+        latest = store.latest_status()
+        pricing = default_pricing()
+        generate_pdf_report(
+            events,
+            dict(latest) if latest else None,
+            args.out,
+            start,
+            end,
+            pricing,
+        )
+        print(f"Wrote {args.out}")
         store.close()
         return
 

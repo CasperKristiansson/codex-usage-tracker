@@ -36,6 +36,18 @@ Show latest usage snapshot:
 codex-track status
 ```
 
+Clear the local DB:
+```bash
+codex-track clear-db
+```
+
+Generate a PDF report:
+```bash
+codex-track pdf --last 30d --out codex-usage.pdf
+```
+
+PDF generation uses built-in pricing for GPT-5.2, gpt-5.1-codex-max, gpt-5.1-codex, and gpt-5.2-codex (per 1M tokens).
+
 ## Default storage location
 - macOS: `~/Library/Application Support/codex-usage-tracker/usage.sqlite`
 - Linux: `~/.local/share/codex-usage-tracker/usage.sqlite`
