@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Iterable, Optional
 
 SCHEMA_VERSION = 1
+INGEST_VERSION = 2
 
 
 @dataclass
@@ -123,6 +124,12 @@ class UsageStore:
             """,
             ("schema_version", str(SCHEMA_VERSION)),
         )
+        cur.execute(
+            """
+            INSERT OR IGNORE INTO meta (key, value) VALUES (?, ?)
+            """,
+            ("ingest_version", str(INGEST_VERSION)),
+        )
         self.conn.commit()
 
     def insert_event(self, event: UsageEvent) -> None:
@@ -212,6 +219,23 @@ class UsageStore:
         )
         return cur.fetchone()
 
+    def ensure_ingest_version(self) -> None:
+        cur = self.conn.execute("SELECT value FROM meta WHERE key = ?", ("ingest_version",))
+        row = cur.fetchone()
+        current = row["value"] if row else None
+        if current == str(INGEST_VERSION):
+            return
+        self.conn.execute("DELETE FROM ingestion_files")
+        self.conn.execute(
+            """
+            INSERT INTO meta (key, value)
+            VALUES (?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+            """,
+            ("ingest_version", str(INGEST_VERSION)),
+        )
+        self.conn.commit()
+
     def file_needs_ingest(self, path: str, mtime_ns: int, size: int) -> bool:
         cur = self.conn.execute(
             "SELECT mtime_ns, size FROM ingestion_files WHERE path = ?",
@@ -235,4 +259,8 @@ class UsageStore:
             """,
             (path, mtime_ns, size, now),
         )
+        self.conn.commit()
+
+    def delete_events_for_source(self, source: str) -> None:
+        self.conn.execute("DELETE FROM events WHERE source = ?", (source,))
         self.conn.commit()

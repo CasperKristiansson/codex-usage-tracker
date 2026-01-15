@@ -105,8 +105,10 @@ def parse_rollout_line(
     if event_type != "token_count":
         return None, context
 
-    event_payload = payload.get("payload") or {}
+    event_payload = payload.get("payload") if isinstance(payload.get("payload"), dict) else payload
     info = event_payload.get("info") or {}
+    if info is None:
+        return None, context
     last_usage = info.get("last_token_usage") or {}
     total_usage = info.get("total_token_usage") or {}
     model_context_window = info.get("model_context_window")

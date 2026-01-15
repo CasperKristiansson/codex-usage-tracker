@@ -33,35 +33,33 @@ class RolloutParseTests(unittest.TestCase):
             "type": "event_msg",
             "payload": {
                 "type": "token_count",
-                "payload": {
-                    "info": {
-                        "total_token_usage": {
-                            "input_tokens": 50,
-                            "cached_input_tokens": 0,
-                            "output_tokens": 10,
-                            "reasoning_output_tokens": 0,
-                            "total_tokens": 17000,
-                        },
-                        "last_token_usage": {
-                            "input_tokens": 20,
-                            "cached_input_tokens": 0,
-                            "output_tokens": 5,
-                            "reasoning_output_tokens": 0,
-                            "total_tokens": 25,
-                        },
-                        "model_context_window": 22000,
+                "info": {
+                    "total_token_usage": {
+                        "input_tokens": 50,
+                        "cached_input_tokens": 0,
+                        "output_tokens": 10,
+                        "reasoning_output_tokens": 0,
+                        "total_tokens": 17000,
                     },
-                    "rate_limits": {
-                        "primary": {
-                            "used_percent": 20.0,
-                            "window_minutes": 300,
-                            "resets_at": 1735725600,
-                        },
-                        "secondary": {
-                            "used_percent": 10.0,
-                            "window_minutes": 10080,
-                            "resets_at": 1735812000,
-                        },
+                    "last_token_usage": {
+                        "input_tokens": 20,
+                        "cached_input_tokens": 0,
+                        "output_tokens": 5,
+                        "reasoning_output_tokens": 0,
+                        "total_tokens": 25,
+                    },
+                    "model_context_window": 22000,
+                },
+                "rate_limits": {
+                    "primary": {
+                        "used_percent": 20.0,
+                        "window_minutes": 300,
+                        "resets_at": 1735725600,
+                    },
+                    "secondary": {
+                        "used_percent": 10.0,
+                        "window_minutes": 10080,
+                        "resets_at": 1735812000,
                     },
                 },
             },

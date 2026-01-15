@@ -86,6 +86,7 @@ def ingest_rollouts(
     start: Optional[datetime],
     end: Optional[datetime],
 ) -> IngestStats:
+    store.ensure_ingest_version()
     stats = IngestStats()
     files = list(_select_rollout_files(path, start, end))
     stats.files_total = len(files)
@@ -97,6 +98,7 @@ def ingest_rollouts(
             progress.update(idx, stats, file_path)
             continue
 
+        store.delete_events_for_source(str(file_path))
         context = RolloutContext()
         try:
             with file_path.open("r", encoding="utf-8") as handle:
