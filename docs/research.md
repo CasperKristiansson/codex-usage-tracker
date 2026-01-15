@@ -29,3 +29,7 @@
   - Usage events via `thread/tokenUsage/updated`.
   - Turn lifecycle: `turn/started` and `turn/completed`.
 - A low-friction instrumentation option is emitting structured JSON lines when `FinalOutput` is printed in `handle_app_exit`, or when `TokenUsageInfo` is updated for in-session events.
+
+## Rollout persistence
+- Token usage events are persisted in rollout JSONL files under `~/.codex/sessions/**/rollout-*.jsonl`.
+- `RolloutItem::EventMsg(EventMsg::TokenCount)` is marked persistable in `codex-main/codex-rs/core/src/rollout/policy.rs`.

@@ -1,15 +1,11 @@
 import argparse
-import os
-import pty
 import sys
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Iterable, Optional
-from zoneinfo import ZoneInfo
 
-from .parser import StatusCapture, map_limits, parse_token_usage_line
-from .platform import default_db_path
+from .platform import default_db_path, default_rollouts_dir
 from .report import (
     STOCKHOLM_TZ,
     aggregate,
@@ -22,138 +18,79 @@ from .report import (
     render_table,
     to_local,
 )
+from .rollout import RolloutContext, iter_rollout_files, parse_rollout_line
 from .store import UsageEvent, UsageStore
 
 
 @dataclass
-class CaptureContext:
-    model: Optional[str] = None
-    directory: Optional[str] = None
-    session_id: Optional[str] = None
-    codex_version: Optional[str] = None
+class IngestStats:
+    files: int = 0
+    lines: int = 0
+    events: int = 0
+    skipped: int = 0
+    errors: int = 0
 
 
-class OutputParser:
-    def __init__(self, store: UsageStore, context: CaptureContext) -> None:
-        self.store = store
-        self.context = context
-        self.status_capture = StatusCapture()
-        self._buffer = ""
+def ingest_rollouts(path: Path, store: UsageStore) -> IngestStats:
+    stats = IngestStats()
+    for file_path in iter_rollout_files(path):
+        stats.files += 1
+        context = RolloutContext()
+        try:
+            with file_path.open("r", encoding="utf-8") as handle:
+                for raw in handle:
+                    raw = raw.strip()
+                    if not raw:
+                        continue
+                    stats.lines += 1
+                    try:
+                        parsed, context = parse_rollout_line(raw, context)
+                    except Exception:
+                        stats.errors += 1
+                        continue
+                    if parsed is None:
+                        stats.skipped += 1
+                        continue
 
-    def feed(self, data: bytes) -> None:
-        text = data.decode(errors="replace")
-        text = text.replace("\r", "\n")
-        self._buffer += text
-        while "\n" in self._buffer:
-            line, self._buffer = self._buffer.split("\n", 1)
-            self._handle_line(line)
-
-    def _handle_line(self, line: str) -> None:
-        token_usage = parse_token_usage_line(line)
-        if token_usage:
-            self._record_usage(token_usage)
-
-        snapshot = self.status_capture.feed_line(line)
-        if snapshot:
-            self.context.model = snapshot.model or self.context.model
-            self.context.directory = snapshot.directory or self.context.directory
-            self.context.session_id = snapshot.session_id or self.context.session_id
-            self.context.codex_version = snapshot.codex_version or self.context.codex_version
-
-            limit_5h_percent, limit_5h_resets, limit_weekly_percent, limit_weekly_resets = (
-                map_limits(snapshot)
-            )
-
-            now_local = datetime.now(STOCKHOLM_TZ)
-            now_utc = now_local.astimezone(ZoneInfo("UTC"))
-            event = UsageEvent(
-                captured_at=now_local.isoformat(),
-                captured_at_utc=now_utc.isoformat(),
-                event_type="status_snapshot",
-                total_tokens=snapshot.token_usage.get("total_tokens")
-                if snapshot.token_usage
-                else None,
-                input_tokens=snapshot.token_usage.get("input_tokens")
-                if snapshot.token_usage
-                else None,
-                output_tokens=snapshot.token_usage.get("output_tokens")
-                if snapshot.token_usage
-                else None,
-                context_used=snapshot.context_window.get("used_tokens")
-                if snapshot.context_window
-                else None,
-                context_total=snapshot.context_window.get("total_tokens")
-                if snapshot.context_window
-                else None,
-                context_percent_left=snapshot.context_window.get("percent_left")
-                if snapshot.context_window
-                else None,
-                limit_5h_percent_left=limit_5h_percent,
-                limit_5h_resets_at=limit_5h_resets,
-                limit_weekly_percent_left=limit_weekly_percent,
-                limit_weekly_resets_at=limit_weekly_resets,
-                model=self.context.model,
-                directory=self.context.directory,
-                session_id=self.context.session_id,
-                codex_version=self.context.codex_version,
-                source="stdout",
-            )
-            self.store.insert_event(event)
-
-    def _record_usage(self, token_usage: Dict[str, int]) -> None:
-        now_local = datetime.now(STOCKHOLM_TZ)
-        now_utc = now_local.astimezone(ZoneInfo("UTC"))
-        event = UsageEvent(
-            captured_at=now_local.isoformat(),
-            captured_at_utc=now_utc.isoformat(),
-            event_type="usage_line",
-            total_tokens=token_usage.get("total_tokens"),
-            input_tokens=token_usage.get("input_tokens"),
-            cached_input_tokens=token_usage.get("cached_input_tokens"),
-            output_tokens=token_usage.get("output_tokens"),
-            reasoning_output_tokens=token_usage.get("reasoning_output_tokens"),
-            model=self.context.model,
-            directory=self.context.directory,
-            session_id=self.context.session_id,
-            codex_version=self.context.codex_version,
-            source="stdout",
-        )
-        self.store.insert_event(event)
-
-
-def run_wrapper(cmd: Iterable[str], store: UsageStore, cwd: Optional[str]) -> int:
-    if not cmd:
-        raise ValueError("No command provided")
-
-    context = CaptureContext(directory=cwd)
-    parser = OutputParser(store, context)
-
-    def master_read(fd: int) -> bytes:
-        data = os.read(fd, 1024)
-        if data:
-            parser.feed(data)
-        return data
-
-    original_cwd = os.getcwd()
-    if cwd:
-        os.chdir(cwd)
-    try:
-        status = pty.spawn(list(cmd), master_read=master_read)
-    finally:
-        if cwd:
-            os.chdir(original_cwd)
-        parser.feed(b"\n")
-
-    if os.WIFEXITED(status):
-        return os.WEXITSTATUS(status)
-    if os.WIFSIGNALED(status):
-        return 128 + os.WTERMSIG(status)
-    return 1
+                    event = UsageEvent(
+                        captured_at=parsed.captured_at_local.isoformat(),
+                        captured_at_utc=parsed.captured_at_utc.isoformat(),
+                        event_type="token_count",
+                        total_tokens=parsed.tokens.get("total_tokens"),
+                        input_tokens=parsed.tokens.get("input_tokens"),
+                        cached_input_tokens=parsed.tokens.get("cached_input_tokens"),
+                        output_tokens=parsed.tokens.get("output_tokens"),
+                        reasoning_output_tokens=parsed.tokens.get(
+                            "reasoning_output_tokens"
+                        ),
+                        context_used=parsed.context_used,
+                        context_total=parsed.context_total,
+                        context_percent_left=parsed.context_percent_left,
+                        limit_5h_percent_left=parsed.limit_5h_percent_left,
+                        limit_5h_resets_at=parsed.limit_5h_resets_at,
+                        limit_weekly_percent_left=parsed.limit_weekly_percent_left,
+                        limit_weekly_resets_at=parsed.limit_weekly_resets_at,
+                        model=context.model,
+                        directory=context.directory,
+                        session_id=context.session_id,
+                        codex_version=context.codex_version,
+                        source=str(file_path),
+                    )
+                    store.insert_event(event)
+                    stats.events += 1
+        except OSError:
+            stats.errors += 1
+    return stats
 
 
 def _load_usage_events(store: UsageStore) -> Iterable[Dict[str, object]]:
-    rows = store.iter_events(event_type="usage_line")
-    return [dict(row) for row in rows]
+    rows = store.iter_events()
+    events = [dict(row) for row in rows]
+    return [
+        event
+        for event in events
+        if event.get("event_type") in ("usage_line", "token_count")
+    ]
 
 
 def _filter_range(
@@ -218,13 +155,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="codex-track")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    run_parser = subparsers.add_parser("run", help="Run codex and capture usage")
-    run_parser.add_argument("--db", type=Path, default=None)
-    run_parser.add_argument("--cwd", type=str, default=None)
-    run_parser.add_argument("cmd", nargs=argparse.REMAINDER)
+    ingest_parser = subparsers.add_parser(
+        "ingest-rollouts", help="Ingest Codex rollout JSONL files"
+    )
+    ingest_parser.add_argument("--db", type=Path, default=None)
+    ingest_parser.add_argument("--path", type=Path, default=None)
 
     report_parser = subparsers.add_parser("report", help="Aggregate usage reports")
     report_parser.add_argument("--db", type=Path, default=None)
+    report_parser.add_argument("--rollouts", type=Path, default=None)
+    report_parser.add_argument("--no-ingest", action="store_true")
     report_parser.add_argument("--last", type=str, default=None)
     report_parser.add_argument("--from", dest="from_date", type=str, default=None)
     report_parser.add_argument("--to", dest="to_date", type=str, default=None)
@@ -240,17 +180,26 @@ def build_parser() -> argparse.ArgumentParser:
 
     export_parser = subparsers.add_parser("export", help="Export raw events")
     export_parser.add_argument("--db", type=Path, default=None)
-    export_parser.add_argument(
-        "--format", choices=["json", "csv"], default="json"
-    )
+    export_parser.add_argument("--rollouts", type=Path, default=None)
+    export_parser.add_argument("--no-ingest", action="store_true")
+    export_parser.add_argument("--format", choices=["json", "csv"], default="json")
     export_parser.add_argument("--out", type=Path, required=True)
 
     status_parser = subparsers.add_parser(
-        "status", help="Show latest captured quota/context snapshot"
+        "status", help="Show latest captured usage snapshot"
     )
     status_parser.add_argument("--db", type=Path, default=None)
+    status_parser.add_argument("--rollouts", type=Path, default=None)
+    status_parser.add_argument("--no-ingest", action="store_true")
 
     return parser
+
+
+def _maybe_ingest(args: argparse.Namespace, store: UsageStore) -> None:
+    if getattr(args, "no_ingest", False):
+        return
+    rollouts_dir = args.rollouts if args.rollouts else default_rollouts_dir()
+    ingest_rollouts(rollouts_dir, store)
 
 
 def main() -> None:
@@ -259,18 +208,23 @@ def main() -> None:
     db_path = args.db if args.db else default_db_path()
     store = UsageStore(db_path)
 
-    if args.command == "run":
-        cmd = list(args.cmd)
-        if cmd and cmd[0] == "--":
-            cmd = cmd[1:]
-        if not cmd:
-            parser.error("run requires a command after --")
-        cwd = args.cwd or os.getcwd()
-        exit_code = run_wrapper(cmd, store, cwd)
+    if args.command == "ingest-rollouts":
+        rollouts_dir = args.path if args.path else default_rollouts_dir()
+        stats = ingest_rollouts(rollouts_dir, store)
+        print(
+            "Ingested {files} files, {lines} lines, {events} token events (skipped {skipped}, errors {errors}).".format(
+                files=stats.files,
+                lines=stats.lines,
+                events=stats.events,
+                skipped=stats.skipped,
+                errors=stats.errors,
+            )
+        )
         store.close()
-        sys.exit(exit_code)
+        return
 
     if args.command == "report":
+        _maybe_ingest(args, store)
         events = _load_usage_events(store)
         now = datetime.now(STOCKHOLM_TZ)
         start = None
@@ -299,6 +253,7 @@ def main() -> None:
         return
 
     if args.command == "export":
+        _maybe_ingest(args, store)
         rows = [dict(row) for row in store.iter_events()]
         if args.format == "json":
             output = export_events_json(rows)
@@ -309,9 +264,10 @@ def main() -> None:
         return
 
     if args.command == "status":
+        _maybe_ingest(args, store)
         row = store.latest_status()
         if not row:
-            print("No status snapshots captured yet.")
+            print("No usage data captured yet.")
             store.close()
             return
         _print_status(dict(row))

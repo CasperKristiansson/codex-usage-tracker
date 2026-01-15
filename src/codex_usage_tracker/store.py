@@ -80,6 +80,22 @@ class UsageStore:
         )
         cur.execute(
             """
+            CREATE UNIQUE INDEX IF NOT EXISTS events_dedupe_idx
+            ON events(
+                captured_at,
+                event_type,
+                total_tokens,
+                input_tokens,
+                cached_input_tokens,
+                output_tokens,
+                reasoning_output_tokens,
+                session_id,
+                source
+            )
+            """
+        )
+        cur.execute(
+            """
             CREATE INDEX IF NOT EXISTS events_captured_at_idx
             ON events(captured_at)
             """
@@ -102,7 +118,7 @@ class UsageStore:
         cur = self.conn.cursor()
         cur.execute(
             """
-            INSERT INTO events (
+            INSERT OR IGNORE INTO events (
                 captured_at,
                 captured_at_utc,
                 event_type,
@@ -178,7 +194,7 @@ class UsageStore:
         cur = self.conn.execute(
             """
             SELECT * FROM events
-            WHERE event_type = 'status_snapshot'
+            WHERE event_type IN ('status_snapshot', 'token_count')
             ORDER BY captured_at DESC
             LIMIT 1
             """

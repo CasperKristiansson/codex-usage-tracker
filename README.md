@@ -1,10 +1,10 @@
 # Codex Usage Tracker
 
-Local-first tracker for OpenAI Codex CLI token usage. It wraps `codex`, parses usage lines and `/status` panels, and stores numeric counts plus minimal metadata in SQLite for reports and exports.
+Local-first tracker for OpenAI Codex CLI token usage. It ingests Codex rollout JSONL files and stores numeric counts plus minimal metadata in SQLite for reports and exports.
 
 ## What it does
-- Captures `Token usage: total=...` lines from Codex CLI output.
-- Captures `/status` snapshots (model, directory, session, context window, limits).
+- Ingests `TokenCount` events from Codex rollout JSONL files.
+- Captures model, directory, session, context window, and limit snapshots when available.
 - Stores usage data locally in SQLite.
 - Generates daily/weekly/monthly summaries and breakdowns by directory/model/session.
 - Exports raw events to JSON or CSV.
@@ -19,14 +19,19 @@ python -m pip install -e .
 ```
 
 ## Quickstart
-Wrapper mode (non-invasive):
+Ingest rollouts (default `~/.codex/sessions`):
 ```bash
-codex-track run -- codex
+codex-track ingest-rollouts
 ```
 
-Generate a 7-day report:
+Generate a 7-day report (auto-ingests rollouts by default):
 ```bash
 codex-track report --last 7d
+```
+
+Skip ingestion if you already synced:
+```bash
+codex-track report --last 7d --no-ingest
 ```
 
 Export raw events to CSV:
@@ -34,7 +39,7 @@ Export raw events to CSV:
 codex-track export --format csv --out usage.csv
 ```
 
-Show latest quota/context snapshot:
+Show latest usage snapshot:
 ```bash
 codex-track status
 ```
@@ -65,7 +70,7 @@ Period      Total  Input  Cached  Output  Reasoning
 ```
 
 ## How it captures data
-- **Wrapper mode (current):** runs `codex` in a PTY and parses stdout lines for usage and `/status` panel data.
+- **Rollout ingestion (current):** reads `~/.codex/sessions/**/rollout-*.jsonl` and extracts `EventMsg::TokenCount` events only.
 - **Instrumentation mode (optional):** see `docs/research.md` for suggested hooks in `codex-main` if you want structured JSON events.
 
 ## Development

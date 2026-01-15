@@ -21,3 +21,7 @@ def default_data_dir() -> Path:
 
 def default_db_path() -> Path:
     return default_data_dir() / DB_FILENAME
+
+
+def default_rollouts_dir() -> Path:
+    return Path.home() / ".codex" / "sessions"
