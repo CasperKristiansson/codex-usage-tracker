@@ -10,10 +10,26 @@ import altair as alt
 import pandas as pd
 import streamlit as st
 
-from .cli import ingest_rollouts
-from .platform import default_db_path, default_rollouts_dir
-from .report import STOCKHOLM_TZ, aggregate, parse_datetime, parse_last, to_local
-from .store import UsageStore
+try:
+    from .cli import ingest_rollouts
+    from .platform import default_db_path, default_rollouts_dir
+    from .report import STOCKHOLM_TZ, aggregate, parse_datetime, parse_last, to_local
+    from .store import UsageStore
+except ImportError:
+    # Allow running via `streamlit run` with a direct file path.
+    import sys as _sys
+
+    _sys.path.append(str(Path(__file__).resolve().parents[1]))
+    from codex_usage_tracker.cli import ingest_rollouts
+    from codex_usage_tracker.platform import default_db_path, default_rollouts_dir
+    from codex_usage_tracker.report import (
+        STOCKHOLM_TZ,
+        aggregate,
+        parse_datetime,
+        parse_last,
+        to_local,
+    )
+    from codex_usage_tracker.store import UsageStore
 
 
 @dataclass
@@ -283,6 +299,7 @@ def _inject_css() -> None:
         .hero-title {
             font-size: 2.6rem;
             font-weight: 700;
+            margin-bottom: 0.35rem;
         }
 
         .hero-subtitle {
