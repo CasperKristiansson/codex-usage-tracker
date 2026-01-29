@@ -40,7 +40,7 @@ codex-track status
 
 Launch the web dashboard:
 ```bash
-codex-track web --last 30d
+codex-track web
 ```
 
 The dashboard uses built-in pricing for GPT-5.2, gpt-5.1-codex-max, gpt-5.1-codex, and gpt-5.2-codex (per 1M tokens).
