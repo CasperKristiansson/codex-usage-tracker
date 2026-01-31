@@ -92,6 +92,20 @@ class UsageStore:
         )
         cur.execute(
             """
+            CREATE TABLE IF NOT EXISTS weekly_quota_estimates (
+                week_start TEXT PRIMARY KEY,
+                week_end TEXT NOT NULL,
+                quota_tokens INTEGER NOT NULL,
+                quota_cost REAL NOT NULL,
+                used_percent REAL,
+                observed_tokens INTEGER NOT NULL,
+                observed_cost REAL NOT NULL,
+                computed_at TEXT NOT NULL
+            )
+            """
+        )
+        cur.execute(
+            """
             CREATE UNIQUE INDEX IF NOT EXISTS events_dedupe_idx
             ON events(
                 captured_at,
@@ -131,6 +145,64 @@ class UsageStore:
             ("ingest_version", str(INGEST_VERSION)),
         )
         self.conn.commit()
+
+    def upsert_weekly_quota(
+        self,
+        week_start: str,
+        week_end: str,
+        quota_tokens: int,
+        quota_cost: float,
+        used_percent: Optional[float],
+        observed_tokens: int,
+        observed_cost: float,
+        computed_at: str,
+    ) -> None:
+        cur = self.conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO weekly_quota_estimates (
+                week_start,
+                week_end,
+                quota_tokens,
+                quota_cost,
+                used_percent,
+                observed_tokens,
+                observed_cost,
+                computed_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(week_start) DO UPDATE SET
+                week_end = excluded.week_end,
+                quota_tokens = excluded.quota_tokens,
+                quota_cost = excluded.quota_cost,
+                used_percent = excluded.used_percent,
+                observed_tokens = excluded.observed_tokens,
+                observed_cost = excluded.observed_cost,
+                computed_at = excluded.computed_at
+            """,
+            (
+                week_start,
+                week_end,
+                quota_tokens,
+                quota_cost,
+                used_percent,
+                observed_tokens,
+                observed_cost,
+                computed_at,
+            ),
+        )
+        self.conn.commit()
+
+    def latest_weekly_quota(self) -> Optional[sqlite3.Row]:
+        cur = self.conn.cursor()
+        row = cur.execute(
+            """
+            SELECT *
+            FROM weekly_quota_estimates
+            ORDER BY week_end DESC
+            LIMIT 1
+            """
+        ).fetchone()
+        return row
 
     def insert_event(self, event: UsageEvent) -> None:
         cur = self.conn.cursor()

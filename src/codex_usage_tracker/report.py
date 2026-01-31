@@ -19,6 +19,91 @@ class ReportRow:
     cached_input_tokens: int
     output_tokens: int
     reasoning_output_tokens: int
+    estimated_cost: float
+
+
+@dataclass
+class PricingModel:
+    input_rate: float
+    output_rate: float
+    cached_input_rate: float
+
+
+@dataclass
+class PricingConfig:
+    unit: str
+    per_unit: int
+    models: Dict[str, PricingModel]
+
+
+def default_pricing() -> PricingConfig:
+    per_unit = 1_000_000
+    return PricingConfig(
+        unit="per_1m",
+        per_unit=per_unit,
+        models={
+            "gpt-5.2": PricingModel(
+                input_rate=1.750,
+                cached_input_rate=0.175,
+                output_rate=14.000,
+            ),
+            "gpt-5.1-codex-max": PricingModel(
+                input_rate=1.25,
+                cached_input_rate=0.125,
+                output_rate=10.00,
+            ),
+            "gpt-5.1-codex": PricingModel(
+                input_rate=1.25,
+                cached_input_rate=0.125,
+                output_rate=10.00,
+            ),
+            "gpt-5.2-codex": PricingModel(
+                input_rate=1.75,
+                cached_input_rate=0.175,
+                output_rate=14.00,
+            ),
+        },
+    )
+
+
+def estimate_event_cost(
+    event: Dict[str, object], pricing: PricingConfig
+) -> Optional[float]:
+    model = event.get("model")
+    if not model or model not in pricing.models:
+        return None
+    rates = pricing.models[model]
+    input_tokens = int(event.get("input_tokens") or 0)
+    cached_tokens = int(event.get("cached_input_tokens") or 0)
+    output_tokens = int(event.get("output_tokens") or 0)
+    non_cached = max(input_tokens - cached_tokens, 0)
+    cost = (
+        (non_cached * rates.input_rate)
+        + (cached_tokens * rates.cached_input_rate)
+        + (output_tokens * rates.output_rate)
+    ) / pricing.per_unit
+    return cost
+
+
+def compute_costs(
+    events: Iterable[Dict[str, object]],
+    pricing: PricingConfig,
+) -> Tuple[float, int, int, Dict[str, float]]:
+    total_cost = 0.0
+    covered_events = 0
+    total_events = 0
+    per_model: Dict[str, float] = {}
+    for event in events:
+        total_events += 1
+        model = event.get("model")
+        cost = estimate_event_cost(event, pricing)
+        if cost is None:
+            continue
+        total_cost += cost
+        covered_events += 1
+        if model:
+            per_model[model] = per_model.get(model, 0.0) + cost
+    return total_cost, covered_events, total_events, per_model
 
 
 def parse_datetime(value: str) -> datetime:
@@ -61,6 +146,7 @@ def aggregate(
     events: Iterable[Dict[str, object]],
     group: str,
     by: Optional[str] = None,
+    pricing: Optional[PricingConfig] = None,
 ) -> List[ReportRow]:
     buckets: Dict[Tuple[str, str], ReportRow] = {}
 
@@ -86,6 +172,7 @@ def aggregate(
                 cached_input_tokens=0,
                 output_tokens=0,
                 reasoning_output_tokens=0,
+                estimated_cost=0.0,
             )
 
         row = buckets[bucket_key]
@@ -94,6 +181,10 @@ def aggregate(
         row.cached_input_tokens += int(event.get("cached_input_tokens") or 0)
         row.output_tokens += int(event.get("output_tokens") or 0)
         row.reasoning_output_tokens += int(event.get("reasoning_output_tokens") or 0)
+        if pricing is not None:
+            cost = estimate_event_cost(event, pricing)
+            if cost is not None:
+                row.estimated_cost += cost
 
     return sorted(buckets.values(), key=lambda r: (r.period, r.group))
 
@@ -102,7 +193,7 @@ def render_table(rows: List[ReportRow], include_group: bool) -> str:
     headers = ["Period"]
     if include_group:
         headers.append("Group")
-    headers += ["Total", "Input", "Cached", "Output", "Reasoning"]
+    headers += ["Total", "Input", "Cached", "Output", "Reasoning", "Est. cost"]
 
     data_rows = []
     for row in rows:
@@ -110,11 +201,12 @@ def render_table(rows: List[ReportRow], include_group: bool) -> str:
         if include_group:
             values.append(row.group)
         values += [
-            str(row.total_tokens),
-            str(row.input_tokens),
-            str(row.cached_input_tokens),
-            str(row.output_tokens),
-            str(row.reasoning_output_tokens),
+            f"{row.total_tokens:,}",
+            f"{row.input_tokens:,}",
+            f"{row.cached_input_tokens:,}",
+            f"{row.output_tokens:,}",
+            f"{row.reasoning_output_tokens:,}",
+            f"${row.estimated_cost:,.2f}",
         ]
         data_rows.append(values)
 
@@ -149,6 +241,7 @@ def render_csv(rows: List[ReportRow]) -> str:
             "cached_input_tokens",
             "output_tokens",
             "reasoning_output_tokens",
+            "estimated_cost",
         ]
     )
     for row in rows:
@@ -161,6 +254,7 @@ def render_csv(rows: List[ReportRow]) -> str:
                 row.cached_input_tokens,
                 row.output_tokens,
                 row.reasoning_output_tokens,
+                row.estimated_cost,
             ]
         )
     return buffer.getvalue().rstrip("\n")

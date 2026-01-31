@@ -1,8 +1,11 @@
 import argparse
 import os
 import sys
+import threading
+import time
+import webbrowser
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, time as dt_time, timedelta
 from pathlib import Path
 from typing import Dict, Iterable, Optional, Tuple
 
@@ -10,6 +13,8 @@ from .platform import default_db_path, default_rollouts_dir
 from .report import (
     STOCKHOLM_TZ,
     aggregate,
+    compute_costs,
+    default_pricing,
     export_events_csv,
     export_events_json,
     parse_datetime,
@@ -62,6 +67,14 @@ class ProgressPrinter:
         if self._enabled and self._last_len:
             sys.stderr.write("\n")
             sys.stderr.flush()
+
+
+def _open_browser(url: str, delay: float = 0.8) -> None:
+    def _runner() -> None:
+        time.sleep(delay)
+        webbrowser.open(url)
+
+    threading.Thread(target=_runner, daemon=True).start()
 
 
 def _select_rollout_files(
@@ -183,6 +196,116 @@ def _filter_range(
     return filtered
 
 
+def _parse_weekly_reset(value: str) -> Optional[Tuple[int, dt_time]]:
+    parts = value.strip().lower().split()
+    if len(parts) != 2:
+        return None
+    day_part, time_part = parts
+    weekday_map = {
+        "mon": 0,
+        "tue": 1,
+        "wed": 2,
+        "thu": 3,
+        "fri": 4,
+        "sat": 5,
+        "sun": 6,
+    }
+    weekday = weekday_map.get(day_part[:3])
+    if weekday is None:
+        return None
+    try:
+        hour, minute = time_part.split(":")
+        reset_time = dt_time(hour=int(hour), minute=int(minute))
+    except ValueError:
+        return None
+    return weekday, reset_time
+
+
+def _weekly_reset_rule() -> Tuple[int, dt_time]:
+    value = os.getenv("CODEX_USAGE_WEEKLY_RESET")
+    if value:
+        parsed = _parse_weekly_reset(value)
+        if parsed is not None:
+            return parsed
+    return 4, dt_time(hour=9, minute=15)
+
+
+def _last_completed_week(now: datetime) -> Tuple[datetime, datetime]:
+    weekday, reset_time = _weekly_reset_rule()
+    anchor = now.replace(
+        hour=reset_time.hour,
+        minute=reset_time.minute,
+        second=0,
+        microsecond=0,
+    )
+    days_since = (now.weekday() - weekday) % 7
+    last_reset = anchor - timedelta(days=days_since)
+    if last_reset > now:
+        last_reset -= timedelta(days=7)
+    week_start = last_reset - timedelta(days=7)
+    week_end = last_reset
+    return week_start, week_end
+
+
+def _estimate_weekly_quota(
+    store: UsageStore,
+    now: datetime,
+) -> Optional[Dict[str, object]]:
+    week_start, week_end = _last_completed_week(now)
+    rows = store.iter_events(start=week_start.isoformat(), end=week_end.isoformat())
+    events = [dict(row) for row in rows]
+    if not events:
+        return None
+    events = [
+        event
+        for event in events
+        if event.get("event_type") in ("usage_line", "token_count")
+    ]
+    events = _filter_range(events, week_start, week_end)
+    if not events:
+        return None
+
+    total_tokens = sum(int(event.get("total_tokens") or 0) for event in events)
+    total_cost, _, _, _ = compute_costs(events, default_pricing())
+    if total_tokens <= 0:
+        return None
+
+    used_percent_max = None
+    for event in events:
+        percent_left = event.get("limit_weekly_percent_left")
+        if percent_left is None:
+            continue
+        used_percent = 100.0 - float(percent_left)
+        used_percent_max = (
+            used_percent
+            if used_percent_max is None
+            else max(used_percent_max, used_percent)
+        )
+
+    scale = 1.0
+    if used_percent_max is not None and used_percent_max > 0:
+        scale = 100.0 / used_percent_max
+
+    quota_tokens = int(round(total_tokens * scale))
+    quota_cost = total_cost * scale
+    payload = {
+        "week_start": week_start.isoformat(),
+        "week_end": week_end.isoformat(),
+        "quota_tokens": quota_tokens,
+        "quota_cost": quota_cost,
+        "used_percent": used_percent_max,
+        "observed_tokens": total_tokens,
+        "observed_cost": total_cost,
+        "computed_at": now.isoformat(),
+    }
+    store.upsert_weekly_quota(**payload)
+    return payload
+
+
+def _format_int(value: Optional[object]) -> str:
+    return f"{int(value or 0):,}"
+
+
 def _print_status(row: Dict[str, object]) -> None:
     print(f"Captured: {row.get('captured_at')}")
     if row.get("model"):
@@ -197,10 +320,10 @@ def _print_status(row: Dict[str, object]) -> None:
     if row.get("total_tokens") is not None:
         print(
             "Token usage: total={total} input={input} cached={cached} output={output}".format(
-                total=row.get("total_tokens") or 0,
-                input=row.get("input_tokens") or 0,
-                cached=row.get("cached_input_tokens") or 0,
-                output=row.get("output_tokens") or 0,
+                total=_format_int(row.get("total_tokens")),
+                input=_format_int(row.get("input_tokens")),
+                cached=_format_int(row.get("cached_input_tokens")),
+                output=_format_int(row.get("output_tokens")),
             )
         )
 
@@ -208,8 +331,8 @@ def _print_status(row: Dict[str, object]) -> None:
         print(
             "Context window: {percent}% left ({used} used / {total})".format(
                 percent=row.get("context_percent_left") or 0,
-                used=row.get("context_used") or 0,
-                total=row.get("context_total") or 0,
+                used=_format_int(row.get("context_used")),
+                total=_format_int(row.get("context_total")),
             )
         )
 
@@ -232,6 +355,11 @@ def build_parser() -> argparse.ArgumentParser:
     report_parser.add_argument("--db", type=Path, default=None)
     report_parser.add_argument("--rollouts", type=Path, default=None)
     report_parser.add_argument("--last", type=str, default=None)
+    report_parser.add_argument(
+        "--today",
+        action="store_true",
+        help="Use today's usage (midnight to now, local timezone)",
+    )
     report_parser.add_argument("--from", dest="from_date", type=str, default=None)
     report_parser.add_argument("--to", dest="to_date", type=str, default=None)
     report_parser.add_argument(
@@ -260,6 +388,11 @@ def build_parser() -> argparse.ArgumentParser:
     web_parser.add_argument("--db", type=Path, default=None)
     web_parser.add_argument("--rollouts", type=Path, default=None)
     web_parser.add_argument("--last", type=str, default=None)
+    web_parser.add_argument(
+        "--today",
+        action="store_true",
+        help="Use today's usage (midnight to now, local timezone)",
+    )
     web_parser.add_argument("--from", dest="from_date", type=str, default=None)
     web_parser.add_argument("--to", dest="to_date", type=str, default=None)
     web_parser.add_argument("--port", type=int, default=None)
@@ -306,7 +439,12 @@ def main() -> None:
         now = datetime.now(STOCKHOLM_TZ)
         start = None
         end = None
-        if args.last:
+        if args.today:
+            if args.last or args.from_date or args.to_date:
+                parser.error("--today cannot be combined with --last/--from/--to")
+            start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            end = now
+        elif args.last:
             delta = parse_last(args.last)
             start = now - delta
             end = now
@@ -317,12 +455,20 @@ def main() -> None:
                 end = to_local(parse_datetime(args.to_date))
 
         _ingest_for_range(args, store, start, end)
+        weekly_quota = _estimate_weekly_quota(store, now)
+        if weekly_quota is None:
+            latest_quota = store.latest_weekly_quota()
+            weekly_quota = dict(latest_quota) if latest_quota else None
         events = _load_usage_events(store)
         events = _filter_range(events, start, end)
-        rows = aggregate(events, args.group, args.by)
+        rows = aggregate(events, args.group, args.by, pricing=default_pricing())
         include_group = args.by is not None
         if args.format == "table":
             output = render_table(rows, include_group)
+            if weekly_quota and weekly_quota.get("quota_tokens"):
+                range_tokens = sum(int(event.get("total_tokens") or 0) for event in events)
+                percent_used = (range_tokens / weekly_quota["quota_tokens"]) * 100.0
+                print(f"Weekly quota used: {percent_used:.1f}%")
         elif args.format == "json":
             output = render_json(rows)
         else:
@@ -358,12 +504,20 @@ def main() -> None:
             os.environ["CODEX_USAGE_DB"] = str(args.db)
         if args.rollouts:
             os.environ["CODEX_USAGE_ROLLOUTS"] = str(args.rollouts)
-        if args.last:
-            os.environ["CODEX_USAGE_LAST"] = str(args.last)
-        if args.from_date:
-            os.environ["CODEX_USAGE_FROM"] = str(args.from_date)
-        if args.to_date:
-            os.environ["CODEX_USAGE_TO"] = str(args.to_date)
+        if args.today:
+            if args.last or args.from_date or args.to_date:
+                parser.error("--today cannot be combined with --last/--from/--to")
+            now = datetime.now(STOCKHOLM_TZ)
+            start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            os.environ["CODEX_USAGE_FROM"] = start.isoformat()
+            os.environ["CODEX_USAGE_TO"] = now.isoformat()
+        else:
+            if args.last:
+                os.environ["CODEX_USAGE_LAST"] = str(args.last)
+            if args.from_date:
+                os.environ["CODEX_USAGE_FROM"] = str(args.from_date)
+            if args.to_date:
+                os.environ["CODEX_USAGE_TO"] = str(args.to_date)
         store.close()
         try:
             from streamlit.web import cli as stcli
@@ -373,9 +527,11 @@ def main() -> None:
             ) from exc
 
         app_path = resources.files("codex_usage_tracker") / "web_app.py"
-        argv = ["streamlit", "run", str(app_path)]
+        argv = ["streamlit", "run", str(app_path), "--server.headless", "true"]
         if args.port:
             argv += ["--server.port", str(args.port)]
+        port = args.port or 8501
+        _open_browser(f"http://localhost:{port}")
         sys.argv = argv
         sys.exit(stcli.main())
 
