@@ -25,7 +25,7 @@ from .report import (
     to_local,
 )
 from .rollout import RolloutContext, iter_rollout_files, parse_rollout_line
-from .store import UsageEvent, UsageStore
+from .store import SessionMeta, TurnContext, UsageEvent, UsageStore
 from importlib import resources
 
 
@@ -106,6 +106,7 @@ def ingest_rollouts(
     files = list(_select_rollout_files(path, start, end))
     stats.files_total = len(files)
     progress = ProgressPrinter(stats.files_total)
+    turn_counters: Dict[str, int] = {}
 
     for idx, (file_path, mtime_ns, size, _) in enumerate(files, start=1):
         if not store.file_needs_ingest(str(file_path), mtime_ns, size):
@@ -114,7 +115,9 @@ def ingest_rollouts(
             continue
 
         store.delete_events_for_source(str(file_path))
+        store.delete_turns_for_source(str(file_path))
         context = RolloutContext()
+        session_meta_saved = False
         try:
             with file_path.open("r", encoding="utf-8") as handle:
                 for raw in handle:
@@ -129,33 +132,134 @@ def ingest_rollouts(
                         continue
                     if parsed is None:
                         continue
+                    if parsed.session_meta is not None and not session_meta_saved:
+                        session_meta_saved = True
+                        session = parsed.session_meta
+                        if session.session_id:
+                            store.upsert_session(
+                                SessionMeta(
+                                    session_id=session.session_id,
+                                    session_timestamp=session.session_timestamp_local.isoformat()
+                                    if session.session_timestamp_local
+                                    else None,
+                                    session_timestamp_utc=session.session_timestamp_utc.isoformat()
+                                    if session.session_timestamp_utc
+                                    else None,
+                                    cwd=session.cwd,
+                                    originator=session.originator,
+                                    cli_version=session.cli_version,
+                                    source=session.source,
+                                    model_provider=session.model_provider,
+                                    git_commit_hash=session.git_commit_hash,
+                                    git_branch=session.git_branch,
+                                    git_repository_url=session.git_repository_url,
+                                    captured_at=session.captured_at_local.isoformat(),
+                                    captured_at_utc=session.captured_at_utc.isoformat(),
+                                    rollout_source=str(file_path),
+                                )
+                            )
 
-                    event = UsageEvent(
-                        captured_at=parsed.captured_at_local.isoformat(),
-                        captured_at_utc=parsed.captured_at_utc.isoformat(),
-                        event_type="token_count",
-                        total_tokens=parsed.tokens.get("total_tokens"),
-                        input_tokens=parsed.tokens.get("input_tokens"),
-                        cached_input_tokens=parsed.tokens.get("cached_input_tokens"),
-                        output_tokens=parsed.tokens.get("output_tokens"),
-                        reasoning_output_tokens=parsed.tokens.get(
-                            "reasoning_output_tokens"
-                        ),
-                        context_used=parsed.context_used,
-                        context_total=parsed.context_total,
-                        context_percent_left=parsed.context_percent_left,
-                        limit_5h_percent_left=parsed.limit_5h_percent_left,
-                        limit_5h_resets_at=parsed.limit_5h_resets_at,
-                        limit_weekly_percent_left=parsed.limit_weekly_percent_left,
-                        limit_weekly_resets_at=parsed.limit_weekly_resets_at,
-                        model=context.model,
-                        directory=context.directory,
-                        session_id=context.session_id,
-                        codex_version=context.codex_version,
-                        source=str(file_path),
-                    )
-                    store.insert_event(event)
-                    stats.events += 1
+                    if parsed.turn_context is not None:
+                        turn = parsed.turn_context
+                        turn_key = context.session_id or f"file:{file_path}"
+                        turn_index = turn_counters.get(turn_key, 0) + 1
+                        turn_counters[turn_key] = turn_index
+                        store.insert_turn(
+                            TurnContext(
+                                captured_at=turn.captured_at_local.isoformat(),
+                                captured_at_utc=turn.captured_at_utc.isoformat(),
+                                session_id=context.session_id,
+                                turn_index=turn_index,
+                                model=turn.model,
+                                cwd=turn.cwd,
+                                approval_policy=turn.approval_policy,
+                                sandbox_policy_type=turn.sandbox_policy_type,
+                                sandbox_network_access=turn.sandbox_network_access,
+                                sandbox_writable_roots=turn.sandbox_writable_roots,
+                                sandbox_exclude_tmpdir_env_var=turn.sandbox_exclude_tmpdir_env_var,
+                                sandbox_exclude_slash_tmp=turn.sandbox_exclude_slash_tmp,
+                                truncation_policy_mode=turn.truncation_policy_mode,
+                                truncation_policy_limit=turn.truncation_policy_limit,
+                                reasoning_effort=turn.reasoning_effort,
+                                reasoning_summary=turn.reasoning_summary,
+                                has_base_instructions=turn.has_base_instructions,
+                                has_user_instructions=turn.has_user_instructions,
+                                has_developer_instructions=turn.has_developer_instructions,
+                                has_final_output_json_schema=turn.has_final_output_json_schema,
+                                source=str(file_path),
+                            )
+                        )
+
+                    if parsed.token_count is not None:
+                        token_count = parsed.token_count
+                        event = UsageEvent(
+                            captured_at=token_count.captured_at_local.isoformat(),
+                            captured_at_utc=token_count.captured_at_utc.isoformat(),
+                            event_type="token_count",
+                            total_tokens=token_count.tokens.get("total_tokens"),
+                            input_tokens=token_count.tokens.get("input_tokens"),
+                            cached_input_tokens=token_count.tokens.get(
+                                "cached_input_tokens"
+                            ),
+                            output_tokens=token_count.tokens.get("output_tokens"),
+                            reasoning_output_tokens=token_count.tokens.get(
+                                "reasoning_output_tokens"
+                            ),
+                            lifetime_total_tokens=token_count.lifetime_tokens.get(
+                                "total_tokens"
+                            ),
+                            lifetime_input_tokens=token_count.lifetime_tokens.get(
+                                "input_tokens"
+                            ),
+                            lifetime_cached_input_tokens=token_count.lifetime_tokens.get(
+                                "cached_input_tokens"
+                            ),
+                            lifetime_output_tokens=token_count.lifetime_tokens.get(
+                                "output_tokens"
+                            ),
+                            lifetime_reasoning_output_tokens=token_count.lifetime_tokens.get(
+                                "reasoning_output_tokens"
+                            ),
+                            context_used=token_count.context_used,
+                            context_total=token_count.context_total,
+                            context_percent_left=token_count.context_percent_left,
+                            limit_5h_percent_left=token_count.limit_5h_percent_left,
+                            limit_5h_resets_at=token_count.limit_5h_resets_at,
+                            limit_weekly_percent_left=token_count.limit_weekly_percent_left,
+                            limit_weekly_resets_at=token_count.limit_weekly_resets_at,
+                            limit_5h_used_percent=token_count.limit_5h_used_percent,
+                            limit_5h_window_minutes=token_count.limit_5h_window_minutes,
+                            limit_5h_resets_at_seconds=token_count.limit_5h_resets_at_seconds,
+                            limit_weekly_used_percent=token_count.limit_weekly_used_percent,
+                            limit_weekly_window_minutes=token_count.limit_weekly_window_minutes,
+                            limit_weekly_resets_at_seconds=token_count.limit_weekly_resets_at_seconds,
+                            rate_limit_has_credits=token_count.rate_limit_has_credits,
+                            rate_limit_unlimited=token_count.rate_limit_unlimited,
+                            rate_limit_balance=token_count.rate_limit_balance,
+                            rate_limit_plan_type=token_count.rate_limit_plan_type,
+                            model=context.model,
+                            directory=context.directory,
+                            session_id=context.session_id,
+                            codex_version=context.codex_version,
+                            source=str(file_path),
+                        )
+                        store.insert_event(event)
+                        stats.events += 1
+
+                    if parsed.event_marker is not None:
+                        marker = parsed.event_marker
+                        event = UsageEvent(
+                            captured_at=marker.captured_at_local.isoformat(),
+                            captured_at_utc=marker.captured_at_utc.isoformat(),
+                            event_type=marker.event_type,
+                            model=context.model,
+                            directory=context.directory,
+                            session_id=context.session_id,
+                            codex_version=context.codex_version,
+                            source=str(file_path),
+                        )
+                        store.insert_event(event)
+                        stats.events += 1
         except OSError:
             stats.errors += 1
             progress.update(idx, stats, file_path)

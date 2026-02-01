@@ -19,10 +19,57 @@ class RolloutContext:
 
 
 @dataclass
+class ParsedSessionMeta:
+    captured_at_local: datetime
+    captured_at_utc: datetime
+    session_id: Optional[str]
+    session_timestamp_local: Optional[datetime]
+    session_timestamp_utc: Optional[datetime]
+    cwd: Optional[str]
+    originator: Optional[str]
+    cli_version: Optional[str]
+    source: Optional[str]
+    model_provider: Optional[str]
+    git_commit_hash: Optional[str]
+    git_branch: Optional[str]
+    git_repository_url: Optional[str]
+
+
+@dataclass
+class ParsedTurnContext:
+    captured_at_local: datetime
+    captured_at_utc: datetime
+    model: Optional[str]
+    cwd: Optional[str]
+    approval_policy: Optional[str]
+    sandbox_policy_type: Optional[str]
+    sandbox_network_access: Optional[bool]
+    sandbox_writable_roots: Optional[str]
+    sandbox_exclude_tmpdir_env_var: Optional[bool]
+    sandbox_exclude_slash_tmp: Optional[bool]
+    truncation_policy_mode: Optional[str]
+    truncation_policy_limit: Optional[int]
+    reasoning_effort: Optional[str]
+    reasoning_summary: Optional[str]
+    has_base_instructions: bool
+    has_user_instructions: bool
+    has_developer_instructions: bool
+    has_final_output_json_schema: bool
+
+
+@dataclass
+class ParsedEventMarker:
+    captured_at_local: datetime
+    captured_at_utc: datetime
+    event_type: str
+
+
+@dataclass
 class ParsedTokenCount:
     captured_at_local: datetime
     captured_at_utc: datetime
     tokens: Dict[str, int]
+    lifetime_tokens: Dict[str, Optional[int]]
     context_used: Optional[int]
     context_total: Optional[int]
     context_percent_left: Optional[int]
@@ -30,6 +77,32 @@ class ParsedTokenCount:
     limit_5h_resets_at: Optional[str]
     limit_weekly_percent_left: Optional[float]
     limit_weekly_resets_at: Optional[str]
+    limit_5h_used_percent: Optional[float]
+    limit_5h_window_minutes: Optional[int]
+    limit_5h_resets_at_seconds: Optional[int]
+    limit_weekly_used_percent: Optional[float]
+    limit_weekly_window_minutes: Optional[int]
+    limit_weekly_resets_at_seconds: Optional[int]
+    rate_limit_has_credits: Optional[bool]
+    rate_limit_unlimited: Optional[bool]
+    rate_limit_balance: Optional[str]
+    rate_limit_plan_type: Optional[str]
+
+
+@dataclass
+class ParsedRolloutItem:
+    token_count: Optional[ParsedTokenCount] = None
+    session_meta: Optional[ParsedSessionMeta] = None
+    turn_context: Optional[ParsedTurnContext] = None
+    event_marker: Optional[ParsedEventMarker] = None
+
+    def is_empty(self) -> bool:
+        return (
+            self.token_count is None
+            and self.session_meta is None
+            and self.turn_context is None
+            and self.event_marker is None
+        )
 
 
 def iter_rollout_files(root: Path) -> Iterator[Path]:
@@ -79,30 +152,204 @@ def _context_percent_left(total_tokens: Optional[int], context_window: Optional[
     return int(round((remaining / effective_window) * 100.0))
 
 
+def _parse_optional_timestamp(value: Optional[str]) -> Tuple[Optional[datetime], Optional[datetime]]:
+    if not value:
+        return None, None
+    try:
+        parsed = parse_rollout_timestamp(value)
+    except ValueError:
+        return None, None
+    return parsed.astimezone(STOCKHOLM_TZ), parsed
+
+
+def _coerce_bool(value: Optional[object]) -> Optional[bool]:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        lowered = value.lower()
+        if lowered in ("true", "yes", "1"):
+            return True
+        if lowered in ("false", "no", "0"):
+            return False
+    return None
+
+
+def _coerce_int(value: Optional[object]) -> Optional[int]:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_session_source(value: Optional[object]) -> Optional[str]:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        if "subagent" in value:
+            return "subagent"
+        if len(value) == 1:
+            return next(iter(value.keys()))
+    return None
+
+
+def _parse_sandbox_policy(
+    policy: Optional[object],
+) -> Tuple[Optional[str], Optional[bool], Optional[str], Optional[bool], Optional[bool]]:
+    if policy is None:
+        return None, None, None, None, None
+    if isinstance(policy, str):
+        return policy, None, None, None, None
+    if not isinstance(policy, dict):
+        return None, None, None, None, None
+    policy_type = policy.get("type")
+    network_access = policy.get("network_access")
+    network_access_bool = None
+    if isinstance(network_access, bool):
+        network_access_bool = network_access
+    elif isinstance(network_access, str):
+        lowered = network_access.lower()
+        if lowered == "enabled":
+            network_access_bool = True
+        elif lowered == "restricted":
+            network_access_bool = False
+    writable_roots = policy.get("writable_roots")
+    roots_serialized = None
+    if isinstance(writable_roots, list):
+        roots_serialized = json.dumps([str(root) for root in writable_roots])
+    exclude_tmpdir_env_var = _coerce_bool(policy.get("exclude_tmpdir_env_var"))
+    exclude_slash_tmp = _coerce_bool(policy.get("exclude_slash_tmp"))
+    return (
+        policy_type,
+        network_access_bool,
+        roots_serialized,
+        exclude_tmpdir_env_var,
+        exclude_slash_tmp,
+    )
+
+
+STATE_CHANGE_EVENTS = {
+    "context_compacted",
+    "thread_rolled_back",
+    "undo_completed",
+    "turn_aborted",
+    "entered_review_mode",
+    "exited_review_mode",
+}
+
+
 def parse_rollout_line(
     raw: str,
     context: RolloutContext,
-) -> Tuple[Optional[ParsedTokenCount], RolloutContext]:
+) -> Tuple[Optional[ParsedRolloutItem], RolloutContext]:
     data = json.loads(raw)
     item_type = data.get("type")
     payload = data.get("payload") or {}
 
+    timestamp = data.get("timestamp")
+    captured_at_utc = parse_rollout_timestamp(timestamp) if timestamp else None
+    captured_at_local = (
+        captured_at_utc.astimezone(STOCKHOLM_TZ) if captured_at_utc else None
+    )
+
     if item_type == "session_meta":
+        if captured_at_local is None or captured_at_utc is None:
+            return None, context
         context.session_id = payload.get("id") or context.session_id
         context.directory = payload.get("cwd") or context.directory
         context.codex_version = payload.get("cli_version") or context.codex_version
-        return None, context
+        session_timestamp_local, session_timestamp_utc = _parse_optional_timestamp(
+            payload.get("timestamp")
+        )
+        git = payload.get("git") if isinstance(payload.get("git"), dict) else {}
+        item = ParsedRolloutItem(
+            session_meta=ParsedSessionMeta(
+                captured_at_local=captured_at_local,
+                captured_at_utc=captured_at_utc,
+                session_id=payload.get("id"),
+                session_timestamp_local=session_timestamp_local,
+                session_timestamp_utc=session_timestamp_utc,
+                cwd=payload.get("cwd"),
+                originator=payload.get("originator"),
+                cli_version=payload.get("cli_version"),
+                source=_parse_session_source(payload.get("source")),
+                model_provider=payload.get("model_provider"),
+                git_commit_hash=git.get("commit_hash") if isinstance(git, dict) else None,
+                git_branch=git.get("branch") if isinstance(git, dict) else None,
+                git_repository_url=git.get("repository_url") if isinstance(git, dict) else None,
+            )
+        )
+        return item, context
 
     if item_type == "turn_context":
+        if captured_at_local is None or captured_at_utc is None:
+            return None, context
         context.model = payload.get("model") or context.model
         context.directory = payload.get("cwd") or context.directory
-        return None, context
+        (
+            sandbox_type,
+            sandbox_network_access,
+            sandbox_writable_roots,
+            sandbox_exclude_tmpdir_env_var,
+            sandbox_exclude_slash_tmp,
+        ) = _parse_sandbox_policy(payload.get("sandbox_policy"))
+        truncation_policy = payload.get("truncation_policy")
+        truncation_mode = None
+        truncation_limit = None
+        if isinstance(truncation_policy, dict):
+            truncation_mode = truncation_policy.get("mode")
+            limit_value = truncation_policy.get("limit")
+            if limit_value is not None:
+                try:
+                    truncation_limit = int(limit_value)
+                except (TypeError, ValueError):
+                    truncation_limit = None
+        item = ParsedRolloutItem(
+            turn_context=ParsedTurnContext(
+                captured_at_local=captured_at_local,
+                captured_at_utc=captured_at_utc,
+                model=payload.get("model"),
+                cwd=payload.get("cwd"),
+                approval_policy=payload.get("approval_policy"),
+                sandbox_policy_type=sandbox_type,
+                sandbox_network_access=sandbox_network_access,
+                sandbox_writable_roots=sandbox_writable_roots,
+                sandbox_exclude_tmpdir_env_var=sandbox_exclude_tmpdir_env_var,
+                sandbox_exclude_slash_tmp=sandbox_exclude_slash_tmp,
+                truncation_policy_mode=truncation_mode,
+                truncation_policy_limit=truncation_limit,
+                reasoning_effort=payload.get("effort"),
+                reasoning_summary=payload.get("summary"),
+                has_base_instructions=bool(payload.get("base_instructions")),
+                has_user_instructions=bool(payload.get("user_instructions")),
+                has_developer_instructions=bool(payload.get("developer_instructions")),
+                has_final_output_json_schema=payload.get("final_output_json_schema")
+                is not None,
+            )
+        )
+        return item, context
 
     if item_type != "event_msg":
         return None, context
 
     event_type = payload.get("type")
     if event_type != "token_count":
+        if (
+            event_type in STATE_CHANGE_EVENTS
+            and captured_at_local is not None
+            and captured_at_utc is not None
+        ):
+            return (
+                ParsedRolloutItem(
+                    event_marker=ParsedEventMarker(
+                        captured_at_local=captured_at_local,
+                        captured_at_utc=captured_at_utc,
+                        event_type=event_type,
+                    )
+                ),
+                context,
+            )
         return None, context
 
     event_payload = payload.get("payload") if isinstance(payload.get("payload"), dict) else payload
@@ -113,11 +360,8 @@ def parse_rollout_line(
     total_usage = info.get("total_token_usage") or {}
     model_context_window = info.get("model_context_window")
 
-    timestamp = data.get("timestamp")
-    if not timestamp:
+    if captured_at_local is None or captured_at_utc is None:
         return None, context
-    captured_at_utc = parse_rollout_timestamp(timestamp)
-    captured_at_local = captured_at_utc.astimezone(STOCKHOLM_TZ)
 
     tokens = {
         "total_tokens": int(last_usage.get("total_tokens") or 0),
@@ -125,6 +369,24 @@ def parse_rollout_line(
         "cached_input_tokens": int(last_usage.get("cached_input_tokens") or 0),
         "output_tokens": int(last_usage.get("output_tokens") or 0),
         "reasoning_output_tokens": int(last_usage.get("reasoning_output_tokens") or 0),
+    }
+
+    lifetime_tokens = {
+        "total_tokens": int(total_usage.get("total_tokens"))
+        if total_usage.get("total_tokens") is not None
+        else None,
+        "input_tokens": int(total_usage.get("input_tokens"))
+        if total_usage.get("input_tokens") is not None
+        else None,
+        "cached_input_tokens": int(total_usage.get("cached_input_tokens"))
+        if total_usage.get("cached_input_tokens") is not None
+        else None,
+        "output_tokens": int(total_usage.get("output_tokens"))
+        if total_usage.get("output_tokens") is not None
+        else None,
+        "reasoning_output_tokens": int(total_usage.get("reasoning_output_tokens"))
+        if total_usage.get("reasoning_output_tokens") is not None
+        else None,
     }
 
     context_used = total_usage.get("total_tokens")
@@ -150,10 +412,14 @@ def parse_rollout_line(
         secondary.get("resets_at"), captured_at_local
     )
 
+    credits = limits.get("credits") or {}
+    plan_type = limits.get("plan_type")
+
     parsed = ParsedTokenCount(
         captured_at_local=captured_at_local,
         captured_at_utc=captured_at_utc,
         tokens=tokens,
+        lifetime_tokens=lifetime_tokens,
         context_used=context_used,
         context_total=model_context_window,
         context_percent_left=context_percent_left,
@@ -161,5 +427,19 @@ def parse_rollout_line(
         limit_5h_resets_at=limit_5h_resets_at,
         limit_weekly_percent_left=limit_weekly_percent_left,
         limit_weekly_resets_at=limit_weekly_resets_at,
+        limit_5h_used_percent=primary_used,
+        limit_5h_window_minutes=_coerce_int(primary.get("window_minutes")),
+        limit_5h_resets_at_seconds=_coerce_int(primary.get("resets_at")),
+        limit_weekly_used_percent=secondary_used,
+        limit_weekly_window_minutes=_coerce_int(secondary.get("window_minutes")),
+        limit_weekly_resets_at_seconds=_coerce_int(secondary.get("resets_at")),
+        rate_limit_has_credits=credits.get("has_credits")
+        if isinstance(credits, dict)
+        else None,
+        rate_limit_unlimited=credits.get("unlimited")
+        if isinstance(credits, dict)
+        else None,
+        rate_limit_balance=credits.get("balance") if isinstance(credits, dict) else None,
+        rate_limit_plan_type=plan_type if plan_type is not None else None,
     )
-    return parsed, context
+    return ParsedRolloutItem(token_count=parsed), context

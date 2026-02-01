@@ -4,8 +4,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Optional
 
-SCHEMA_VERSION = 1
-INGEST_VERSION = 2
+SCHEMA_VERSION = 2
+INGEST_VERSION = 3
 
 
 @dataclass
@@ -18,6 +18,11 @@ class UsageEvent:
     cached_input_tokens: Optional[int] = None
     output_tokens: Optional[int] = None
     reasoning_output_tokens: Optional[int] = None
+    lifetime_total_tokens: Optional[int] = None
+    lifetime_input_tokens: Optional[int] = None
+    lifetime_cached_input_tokens: Optional[int] = None
+    lifetime_output_tokens: Optional[int] = None
+    lifetime_reasoning_output_tokens: Optional[int] = None
     context_used: Optional[int] = None
     context_total: Optional[int] = None
     context_percent_left: Optional[float] = None
@@ -25,11 +30,64 @@ class UsageEvent:
     limit_5h_resets_at: Optional[str] = None
     limit_weekly_percent_left: Optional[float] = None
     limit_weekly_resets_at: Optional[str] = None
+    limit_5h_used_percent: Optional[float] = None
+    limit_5h_window_minutes: Optional[int] = None
+    limit_5h_resets_at_seconds: Optional[int] = None
+    limit_weekly_used_percent: Optional[float] = None
+    limit_weekly_window_minutes: Optional[int] = None
+    limit_weekly_resets_at_seconds: Optional[int] = None
+    rate_limit_has_credits: Optional[bool] = None
+    rate_limit_unlimited: Optional[bool] = None
+    rate_limit_balance: Optional[str] = None
+    rate_limit_plan_type: Optional[str] = None
     model: Optional[str] = None
     directory: Optional[str] = None
     session_id: Optional[str] = None
     codex_version: Optional[str] = None
     source: Optional[str] = None
+
+
+@dataclass
+class SessionMeta:
+    session_id: str
+    session_timestamp: Optional[str]
+    session_timestamp_utc: Optional[str]
+    cwd: Optional[str]
+    originator: Optional[str]
+    cli_version: Optional[str]
+    source: Optional[str]
+    model_provider: Optional[str]
+    git_commit_hash: Optional[str]
+    git_branch: Optional[str]
+    git_repository_url: Optional[str]
+    captured_at: Optional[str]
+    captured_at_utc: Optional[str]
+    rollout_source: Optional[str]
+
+
+@dataclass
+class TurnContext:
+    captured_at: str
+    captured_at_utc: str
+    session_id: Optional[str]
+    turn_index: int
+    model: Optional[str]
+    cwd: Optional[str]
+    approval_policy: Optional[str]
+    sandbox_policy_type: Optional[str]
+    sandbox_network_access: Optional[bool]
+    sandbox_writable_roots: Optional[str]
+    sandbox_exclude_tmpdir_env_var: Optional[bool]
+    sandbox_exclude_slash_tmp: Optional[bool]
+    truncation_policy_mode: Optional[str]
+    truncation_policy_limit: Optional[int]
+    reasoning_effort: Optional[str]
+    reasoning_summary: Optional[str]
+    has_base_instructions: bool
+    has_user_instructions: bool
+    has_developer_instructions: bool
+    has_final_output_json_schema: bool
+    source: Optional[str]
 
 
 class UsageStore:
@@ -75,6 +133,11 @@ class UsageStore:
                 cached_input_tokens INTEGER,
                 output_tokens INTEGER,
                 reasoning_output_tokens INTEGER,
+                lifetime_total_tokens INTEGER,
+                lifetime_input_tokens INTEGER,
+                lifetime_cached_input_tokens INTEGER,
+                lifetime_output_tokens INTEGER,
+                lifetime_reasoning_output_tokens INTEGER,
                 context_used INTEGER,
                 context_total INTEGER,
                 context_percent_left REAL,
@@ -82,10 +145,68 @@ class UsageStore:
                 limit_5h_resets_at TEXT,
                 limit_weekly_percent_left REAL,
                 limit_weekly_resets_at TEXT,
+                limit_5h_used_percent REAL,
+                limit_5h_window_minutes INTEGER,
+                limit_5h_resets_at_seconds INTEGER,
+                limit_weekly_used_percent REAL,
+                limit_weekly_window_minutes INTEGER,
+                limit_weekly_resets_at_seconds INTEGER,
+                rate_limit_has_credits INTEGER,
+                rate_limit_unlimited INTEGER,
+                rate_limit_balance TEXT,
+                rate_limit_plan_type TEXT,
                 model TEXT,
                 directory TEXT,
                 session_id TEXT,
                 codex_version TEXT,
+                source TEXT
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS sessions (
+                session_id TEXT PRIMARY KEY,
+                session_timestamp TEXT,
+                session_timestamp_utc TEXT,
+                cwd TEXT,
+                originator TEXT,
+                cli_version TEXT,
+                source TEXT,
+                model_provider TEXT,
+                git_commit_hash TEXT,
+                git_branch TEXT,
+                git_repository_url TEXT,
+                captured_at TEXT,
+                captured_at_utc TEXT,
+                rollout_source TEXT
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS turns (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT,
+                turn_index INTEGER,
+                captured_at TEXT NOT NULL,
+                captured_at_utc TEXT NOT NULL,
+                model TEXT,
+                cwd TEXT,
+                approval_policy TEXT,
+                sandbox_policy_type TEXT,
+                sandbox_network_access INTEGER,
+                sandbox_writable_roots TEXT,
+                sandbox_exclude_tmpdir_env_var INTEGER,
+                sandbox_exclude_slash_tmp INTEGER,
+                truncation_policy_mode TEXT,
+                truncation_policy_limit INTEGER,
+                reasoning_effort TEXT,
+                reasoning_summary TEXT,
+                has_base_instructions INTEGER,
+                has_user_instructions INTEGER,
+                has_developer_instructions INTEGER,
+                has_final_output_json_schema INTEGER,
                 source TEXT
             )
             """
@@ -134,6 +255,18 @@ class UsageStore:
         )
         cur.execute(
             """
+            CREATE INDEX IF NOT EXISTS turns_session_idx
+            ON turns(session_id)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS turns_captured_at_idx
+            ON turns(captured_at)
+            """
+        )
+        cur.execute(
+            """
             INSERT OR IGNORE INTO meta (key, value) VALUES (?, ?)
             """,
             ("schema_version", str(SCHEMA_VERSION)),
@@ -144,7 +277,45 @@ class UsageStore:
             """,
             ("ingest_version", str(INGEST_VERSION)),
         )
+        self._ensure_event_columns()
+        self._ensure_schema_version()
         self.conn.commit()
+
+    def _ensure_event_columns(self) -> None:
+        columns = self.conn.execute("PRAGMA table_info(events)").fetchall()
+        existing = {row["name"] for row in columns}
+        additions = {
+            "lifetime_total_tokens": "INTEGER",
+            "lifetime_input_tokens": "INTEGER",
+            "lifetime_cached_input_tokens": "INTEGER",
+            "lifetime_output_tokens": "INTEGER",
+            "lifetime_reasoning_output_tokens": "INTEGER",
+            "limit_5h_used_percent": "REAL",
+            "limit_5h_window_minutes": "INTEGER",
+            "limit_5h_resets_at_seconds": "INTEGER",
+            "limit_weekly_used_percent": "REAL",
+            "limit_weekly_window_minutes": "INTEGER",
+            "limit_weekly_resets_at_seconds": "INTEGER",
+            "rate_limit_has_credits": "INTEGER",
+            "rate_limit_unlimited": "INTEGER",
+            "rate_limit_balance": "TEXT",
+            "rate_limit_plan_type": "TEXT",
+        }
+        for column, ddl in additions.items():
+            if column not in existing:
+                self.conn.execute(
+                    f"ALTER TABLE events ADD COLUMN {column} {ddl}"
+                )
+
+    def _ensure_schema_version(self) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO meta (key, value)
+            VALUES (?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+            """,
+            ("schema_version", str(SCHEMA_VERSION)),
+        )
 
     def upsert_weekly_quota(
         self,
@@ -217,6 +388,11 @@ class UsageStore:
                 cached_input_tokens,
                 output_tokens,
                 reasoning_output_tokens,
+                lifetime_total_tokens,
+                lifetime_input_tokens,
+                lifetime_cached_input_tokens,
+                lifetime_output_tokens,
+                lifetime_reasoning_output_tokens,
                 context_used,
                 context_total,
                 context_percent_left,
@@ -224,12 +400,25 @@ class UsageStore:
                 limit_5h_resets_at,
                 limit_weekly_percent_left,
                 limit_weekly_resets_at,
+                limit_5h_used_percent,
+                limit_5h_window_minutes,
+                limit_5h_resets_at_seconds,
+                limit_weekly_used_percent,
+                limit_weekly_window_minutes,
+                limit_weekly_resets_at_seconds,
+                rate_limit_has_credits,
+                rate_limit_unlimited,
+                rate_limit_balance,
+                rate_limit_plan_type,
                 model,
                 directory,
                 session_id,
                 codex_version,
                 source
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+            )
             """,
             (
                 event.captured_at,
@@ -240,6 +429,11 @@ class UsageStore:
                 event.cached_input_tokens,
                 event.output_tokens,
                 event.reasoning_output_tokens,
+                event.lifetime_total_tokens,
+                event.lifetime_input_tokens,
+                event.lifetime_cached_input_tokens,
+                event.lifetime_output_tokens,
+                event.lifetime_reasoning_output_tokens,
                 event.context_used,
                 event.context_total,
                 event.context_percent_left,
@@ -247,11 +441,133 @@ class UsageStore:
                 event.limit_5h_resets_at,
                 event.limit_weekly_percent_left,
                 event.limit_weekly_resets_at,
+                event.limit_5h_used_percent,
+                event.limit_5h_window_minutes,
+                event.limit_5h_resets_at_seconds,
+                event.limit_weekly_used_percent,
+                event.limit_weekly_window_minutes,
+                event.limit_weekly_resets_at_seconds,
+                event.rate_limit_has_credits,
+                event.rate_limit_unlimited,
+                event.rate_limit_balance,
+                event.rate_limit_plan_type,
                 event.model,
                 event.directory,
                 event.session_id,
                 event.codex_version,
                 event.source,
+            ),
+        )
+        self.conn.commit()
+
+    def upsert_session(self, session: SessionMeta) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO sessions (
+                session_id,
+                session_timestamp,
+                session_timestamp_utc,
+                cwd,
+                originator,
+                cli_version,
+                source,
+                model_provider,
+                git_commit_hash,
+                git_branch,
+                git_repository_url,
+                captured_at,
+                captured_at_utc,
+                rollout_source
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(session_id) DO UPDATE SET
+                session_timestamp = excluded.session_timestamp,
+                session_timestamp_utc = excluded.session_timestamp_utc,
+                cwd = excluded.cwd,
+                originator = excluded.originator,
+                cli_version = excluded.cli_version,
+                source = excluded.source,
+                model_provider = excluded.model_provider,
+                git_commit_hash = excluded.git_commit_hash,
+                git_branch = excluded.git_branch,
+                git_repository_url = excluded.git_repository_url,
+                captured_at = excluded.captured_at,
+                captured_at_utc = excluded.captured_at_utc,
+                rollout_source = excluded.rollout_source
+            """,
+            (
+                session.session_id,
+                session.session_timestamp,
+                session.session_timestamp_utc,
+                session.cwd,
+                session.originator,
+                session.cli_version,
+                session.source,
+                session.model_provider,
+                session.git_commit_hash,
+                session.git_branch,
+                session.git_repository_url,
+                session.captured_at,
+                session.captured_at_utc,
+                session.rollout_source,
+            ),
+        )
+        self.conn.commit()
+
+    def insert_turn(self, turn: TurnContext) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO turns (
+                session_id,
+                turn_index,
+                captured_at,
+                captured_at_utc,
+                model,
+                cwd,
+                approval_policy,
+                sandbox_policy_type,
+                sandbox_network_access,
+                sandbox_writable_roots,
+                sandbox_exclude_tmpdir_env_var,
+                sandbox_exclude_slash_tmp,
+                truncation_policy_mode,
+                truncation_policy_limit,
+                reasoning_effort,
+                reasoning_summary,
+                has_base_instructions,
+                has_user_instructions,
+                has_developer_instructions,
+                has_final_output_json_schema,
+                source
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                turn.session_id,
+                turn.turn_index,
+                turn.captured_at,
+                turn.captured_at_utc,
+                turn.model,
+                turn.cwd,
+                turn.approval_policy,
+                turn.sandbox_policy_type,
+                1 if turn.sandbox_network_access else 0
+                if turn.sandbox_network_access is not None
+                else None,
+                turn.sandbox_writable_roots,
+                1 if turn.sandbox_exclude_tmpdir_env_var else 0
+                if turn.sandbox_exclude_tmpdir_env_var is not None
+                else None,
+                1 if turn.sandbox_exclude_slash_tmp else 0
+                if turn.sandbox_exclude_slash_tmp is not None
+                else None,
+                turn.truncation_policy_mode,
+                turn.truncation_policy_limit,
+                turn.reasoning_effort,
+                turn.reasoning_summary,
+                1 if turn.has_base_instructions else 0,
+                1 if turn.has_user_instructions else 0,
+                1 if turn.has_developer_instructions else 0,
+                1 if turn.has_final_output_json_schema else 0,
+                turn.source,
             ),
         )
         self.conn.commit()
@@ -335,4 +651,8 @@ class UsageStore:
 
     def delete_events_for_source(self, source: str) -> None:
         self.conn.execute("DELETE FROM events WHERE source = ?", (source,))
+        self.conn.commit()
+
+    def delete_turns_for_source(self, source: str) -> None:
+        self.conn.execute("DELETE FROM turns WHERE source = ?", (source,))
         self.conn.commit()
