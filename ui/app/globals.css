@@ -1,0 +1,100 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+:root,
+.dark {
+  --background: 220 49% 8%;
+  --foreground: 220 13% 91%;
+
+  --card: 222 47% 11%;
+  --card-foreground: 220 13% 91%;
+
+  --popover: 221 50% 13%;
+  --popover-foreground: 220 13% 91%;
+
+  --primary: 188 86% 53%;
+  --primary-foreground: 222 47% 11%;
+
+  --secondary: 221 50% 13%;
+  --secondary-foreground: 220 13% 91%;
+
+  --muted: 223 42% 16%;
+  --muted-foreground: 220 13% 72%;
+
+  --accent: 188 86% 53%;
+  --accent-foreground: 222 47% 11%;
+
+  --destructive: 0 91% 71%;
+  --destructive-foreground: 222 47% 11%;
+
+  --border: 215 20% 65%;
+  --input: 215 20% 65%;
+  --ring: 188 86% 53%;
+}
+
+.light {
+  color-scheme: light;
+  --background: 210 40% 98%;
+  --foreground: 222 47% 11%;
+
+  --card: 0 0% 100%;
+  --card-foreground: 222 47% 11%;
+
+  --popover: 0 0% 100%;
+  --popover-foreground: 222 47% 11%;
+
+  --primary: 188 86% 38%;
+  --primary-foreground: 0 0% 100%;
+
+  --secondary: 214 32% 91%;
+  --secondary-foreground: 222 47% 11%;
+
+  --muted: 214 32% 94%;
+  --muted-foreground: 220 10% 40%;
+
+  --accent: 188 86% 38%;
+  --accent-foreground: 0 0% 100%;
+
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 100%;
+
+  --border: 220 13% 88%;
+  --input: 220 13% 88%;
+  --ring: 188 86% 38%;
+}
+
+* {
+  @apply border-border;
+}
+
+body {
+  @apply bg-background text-foreground antialiased;
+  min-height: 100vh;
+  background-image: radial-gradient(1200px 600px at 80% -20%, rgba(34, 211, 238, 0.08), transparent 60%),
+    radial-gradient(800px 480px at -10% 10%, rgba(96, 165, 250, 0.06), transparent 60%);
+  background-attachment: fixed;
+}
+
+::selection {
+  background: rgba(34, 211, 238, 0.2);
+}
+
+@layer components {
+  .card-panel {
+    @apply rounded-lg border border-border/20 bg-card text-card-foreground shadow-soft;
+  }
+  .card-header {
+    @apply flex items-start justify-between gap-3 border-b border-border/15 px-4 py-3;
+  }
+  .card-title {
+    @apply text-sm font-semibold text-foreground;
+  }
+  .card-subtitle {
+    @apply text-xs text-muted-foreground;
+  }
+}

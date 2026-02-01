@@ -1,0 +1,9 @@
+export const DEFAULT_RANGE_DAYS = 14;
+export const MAX_TOP_N = 25;
+export const MIN_TOP_N = 1;
+export const MAX_BUCKETS = 1000;
+export const MAX_PAGE_SIZE = 100;
+export const DEFAULT_PAGE_SIZE = 25;
+export const DEFAULT_PAGE = 1;
+export const DEBUG_ROW_LIMIT = 200;
+export const DEBUG_TEXT_LIMIT = 800;
