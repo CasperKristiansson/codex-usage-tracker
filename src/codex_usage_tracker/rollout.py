@@ -1,8 +1,8 @@
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Iterable, Iterator, Optional, Tuple
+from typing import Dict, Iterable, Iterator, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
 from .report import STOCKHOLM_TZ
@@ -65,6 +65,15 @@ class ParsedEventMarker:
 
 
 @dataclass
+class ParsedActivityEvent:
+    captured_at_local: datetime
+    captured_at_utc: datetime
+    event_type: str
+    event_name: Optional[str] = None
+    count: int = 1
+
+
+@dataclass
 class ParsedTokenCount:
     captured_at_local: datetime
     captured_at_utc: datetime
@@ -95,6 +104,7 @@ class ParsedRolloutItem:
     session_meta: Optional[ParsedSessionMeta] = None
     turn_context: Optional[ParsedTurnContext] = None
     event_marker: Optional[ParsedEventMarker] = None
+    activity_events: List[ParsedActivityEvent] = field(default_factory=list)
 
     def is_empty(self) -> bool:
         return (
@@ -102,6 +112,7 @@ class ParsedRolloutItem:
             and self.session_meta is None
             and self.turn_context is None
             and self.event_marker is None
+            and not self.activity_events
         )
 
 
@@ -229,6 +240,18 @@ def _parse_sandbox_policy(
     )
 
 
+def _command_name(command: Optional[object]) -> Optional[str]:
+    if isinstance(command, list) and command:
+        first = command[0]
+        return first if isinstance(first, str) else None
+    if isinstance(command, str):
+        command = command.strip()
+        if not command:
+            return None
+        return command.split()[0]
+    return None
+
+
 STATE_CHANGE_EVENTS = {
     "context_compacted",
     "thread_rolled_back",
@@ -330,16 +353,189 @@ def parse_rollout_line(
         )
         return item, context
 
+    if item_type == "response_item":
+        if not isinstance(payload, dict):
+            return None, context
+        if captured_at_local is None or captured_at_utc is None:
+            return None, context
+        response_type = payload.get("type")
+        activity_events: List[ParsedActivityEvent] = []
+        if response_type == "message":
+            role = payload.get("role")
+            if role == "user":
+                activity_events.append(
+                    ParsedActivityEvent(
+                        captured_at_local=captured_at_local,
+                        captured_at_utc=captured_at_utc,
+                        event_type="user_message",
+                        event_name="response_item",
+                    )
+                )
+            elif role == "assistant":
+                activity_events.append(
+                    ParsedActivityEvent(
+                        captured_at_local=captured_at_local,
+                        captured_at_utc=captured_at_utc,
+                        event_type="assistant_message",
+                        event_name="response_item",
+                    )
+                )
+        elif response_type == "local_shell_call":
+            activity_events.append(
+                ParsedActivityEvent(
+                    captured_at_local=captured_at_local,
+                    captured_at_utc=captured_at_utc,
+                    event_type="tool_call",
+                    event_name="local_shell",
+                )
+            )
+            action = payload.get("action") if isinstance(payload.get("action"), dict) else {}
+            if action.get("type") == "exec":
+                command_name = _command_name(action.get("command"))
+                if command_name:
+                    activity_events.append(
+                        ParsedActivityEvent(
+                            captured_at_local=captured_at_local,
+                            captured_at_utc=captured_at_utc,
+                            event_type="shell_command",
+                            event_name=command_name,
+                        )
+                    )
+        elif response_type == "function_call":
+            activity_events.append(
+                ParsedActivityEvent(
+                    captured_at_local=captured_at_local,
+                    captured_at_utc=captured_at_utc,
+                    event_type="tool_call",
+                    event_name="function",
+                )
+            )
+            name = payload.get("name")
+            if isinstance(name, str) and name:
+                activity_events.append(
+                    ParsedActivityEvent(
+                        captured_at_local=captured_at_local,
+                        captured_at_utc=captured_at_utc,
+                        event_type="tool_name",
+                        event_name=name,
+                    )
+                )
+        elif response_type == "custom_tool_call":
+            activity_events.append(
+                ParsedActivityEvent(
+                    captured_at_local=captured_at_local,
+                    captured_at_utc=captured_at_utc,
+                    event_type="tool_call",
+                    event_name="custom_tool",
+                )
+            )
+            name = payload.get("name")
+            if isinstance(name, str) and name:
+                activity_events.append(
+                    ParsedActivityEvent(
+                        captured_at_local=captured_at_local,
+                        captured_at_utc=captured_at_utc,
+                        event_type="tool_name",
+                        event_name=name,
+                    )
+                )
+        elif response_type == "web_search_call":
+            activity_events.append(
+                ParsedActivityEvent(
+                    captured_at_local=captured_at_local,
+                    captured_at_utc=captured_at_utc,
+                    event_type="tool_call",
+                    event_name="web_search",
+                )
+            )
+        elif response_type in ("compaction", "compaction_summary"):
+            activity_events.append(
+                ParsedActivityEvent(
+                    captured_at_local=captured_at_local,
+                    captured_at_utc=captured_at_utc,
+                    event_type="tool_call",
+                    event_name="compaction",
+                )
+            )
+
+        if activity_events:
+            return ParsedRolloutItem(activity_events=activity_events), context
+        return None, context
+
     if item_type != "event_msg":
         return None, context
 
     event_type = payload.get("type")
+    event_payload = payload.get("payload") if isinstance(payload.get("payload"), dict) else payload
+    if not isinstance(event_payload, dict):
+        event_payload = {}
     if event_type != "token_count":
-        if (
-            event_type in STATE_CHANGE_EVENTS
-            and captured_at_local is not None
-            and captured_at_utc is not None
-        ):
+        if captured_at_local is None or captured_at_utc is None:
+            return None, context
+        activity_events: List[ParsedActivityEvent] = []
+        if event_type == "user_message":
+            activity_events.append(
+                ParsedActivityEvent(
+                    captured_at_local=captured_at_local,
+                    captured_at_utc=captured_at_utc,
+                    event_type="user_message",
+                    event_name="event_msg",
+                )
+            )
+            images = event_payload.get("images")
+            if isinstance(images, list) and images:
+                activity_events.append(
+                    ParsedActivityEvent(
+                        captured_at_local=captured_at_local,
+                        captured_at_utc=captured_at_utc,
+                        event_type="user_image",
+                        event_name="event_msg",
+                        count=len(images),
+                    )
+                )
+            local_images = event_payload.get("local_images")
+            if isinstance(local_images, list) and local_images:
+                activity_events.append(
+                    ParsedActivityEvent(
+                        captured_at_local=captured_at_local,
+                        captured_at_utc=captured_at_utc,
+                        event_type="user_local_image",
+                        event_name="event_msg",
+                        count=len(local_images),
+                    )
+                )
+        elif event_type == "agent_message":
+            activity_events.append(
+                ParsedActivityEvent(
+                    captured_at_local=captured_at_local,
+                    captured_at_utc=captured_at_utc,
+                    event_type="assistant_message",
+                    event_name="event_msg",
+                )
+            )
+        elif event_type == "agent_reasoning":
+            activity_events.append(
+                ParsedActivityEvent(
+                    captured_at_local=captured_at_local,
+                    captured_at_utc=captured_at_utc,
+                    event_type="reasoning_event",
+                    event_name="event_msg",
+                )
+            )
+        elif event_type == "agent_reasoning_raw_content":
+            activity_events.append(
+                ParsedActivityEvent(
+                    captured_at_local=captured_at_local,
+                    captured_at_utc=captured_at_utc,
+                    event_type="reasoning_raw_event",
+                    event_name="event_msg",
+                )
+            )
+
+        if activity_events:
+            return ParsedRolloutItem(activity_events=activity_events), context
+
+        if event_type in STATE_CHANGE_EVENTS:
             return (
                 ParsedRolloutItem(
                     event_marker=ParsedEventMarker(
@@ -352,7 +548,6 @@ def parse_rollout_line(
             )
         return None, context
 
-    event_payload = payload.get("payload") if isinstance(payload.get("payload"), dict) else payload
     info = event_payload.get("info") or {}
     if info is None:
         return None, context

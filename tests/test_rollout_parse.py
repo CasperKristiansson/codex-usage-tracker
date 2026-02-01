@@ -109,6 +109,56 @@ class RolloutParseTests(unittest.TestCase):
         self.assertIsNotNone(parsed)
         self.assertEqual(parsed.event_marker.event_type, "context_compacted")
 
+        user_message_payload = {
+            "timestamp": "2025-01-01T10:00:04.000Z",
+            "type": "event_msg",
+            "payload": {
+                "type": "user_message",
+                "message": "hi",
+                "images": ["https://example.com/1.png"],
+                "local_images": ["/tmp/a.png", "/tmp/b.jpg"],
+            },
+        }
+        user_message_line = __import__("json").dumps(user_message_payload)
+        parsed, context = parse_rollout_line(user_message_line, context)
+        self.assertIsNotNone(parsed)
+        types = [event.event_type for event in parsed.activity_events]
+        self.assertIn("user_message", types)
+        self.assertIn("user_image", types)
+        self.assertIn("user_local_image", types)
+        image_count = next(
+            event.count for event in parsed.activity_events if event.event_type == "user_image"
+        )
+        self.assertEqual(image_count, 1)
+        local_image_count = next(
+            event.count
+            for event in parsed.activity_events
+            if event.event_type == "user_local_image"
+        )
+        self.assertEqual(local_image_count, 2)
+
+        response_item_payload = {
+            "timestamp": "2025-01-01T10:00:05.000Z",
+            "type": "response_item",
+            "payload": {
+                "type": "local_shell_call",
+                "status": "completed",
+                "action": {"type": "exec", "command": ["git", "status"]},
+            },
+        }
+        response_item_line = __import__("json").dumps(response_item_payload)
+        parsed, context = parse_rollout_line(response_item_line, context)
+        self.assertIsNotNone(parsed)
+        tool_types = [event.event_type for event in parsed.activity_events]
+        self.assertIn("tool_call", tool_types)
+        self.assertIn("shell_command", tool_types)
+        command_name = next(
+            event.event_name
+            for event in parsed.activity_events
+            if event.event_type == "shell_command"
+        )
+        self.assertEqual(command_name, "git")
+
 
 if __name__ == "__main__":
     unittest.main()

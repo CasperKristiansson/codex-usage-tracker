@@ -25,7 +25,7 @@ from .report import (
     to_local,
 )
 from .rollout import RolloutContext, iter_rollout_files, parse_rollout_line
-from .store import SessionMeta, TurnContext, UsageEvent, UsageStore
+from .store import ActivityEvent, SessionMeta, TurnContext, UsageEvent, UsageStore
 from importlib import resources
 
 
@@ -116,6 +116,7 @@ def ingest_rollouts(
 
         store.delete_events_for_source(str(file_path))
         store.delete_turns_for_source(str(file_path))
+        store.delete_activity_events_for_source(str(file_path))
         context = RolloutContext()
         session_meta_saved = False
         try:
@@ -260,6 +261,26 @@ def ingest_rollouts(
                         )
                         store.insert_event(event)
                         stats.events += 1
+
+                    if parsed.activity_events:
+                        turn_key = context.session_id or f"file:{file_path}"
+                        turn_index = turn_counters.get(turn_key)
+                        for activity in parsed.activity_events:
+                            if activity.count <= 0:
+                                continue
+                            store.insert_activity_event(
+                                ActivityEvent(
+                                    captured_at=activity.captured_at_local.isoformat(),
+                                    captured_at_utc=activity.captured_at_utc.isoformat(),
+                                    event_type=activity.event_type,
+                                    event_name=activity.event_name,
+                                    count=activity.count,
+                                    session_id=context.session_id,
+                                    turn_index=turn_index,
+                                    source=str(file_path),
+                                )
+                            )
+                            stats.events += 1
         except OSError:
             stats.errors += 1
             progress.update(idx, stats, file_path)

@@ -4,8 +4,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Optional
 
-SCHEMA_VERSION = 2
-INGEST_VERSION = 3
+SCHEMA_VERSION = 3
+INGEST_VERSION = 4
 
 
 @dataclass
@@ -88,6 +88,18 @@ class TurnContext:
     has_developer_instructions: bool
     has_final_output_json_schema: bool
     source: Optional[str]
+
+
+@dataclass
+class ActivityEvent:
+    captured_at: str
+    captured_at_utc: str
+    event_type: str
+    event_name: Optional[str] = None
+    count: int = 1
+    session_id: Optional[str] = None
+    turn_index: Optional[int] = None
+    source: Optional[str] = None
 
 
 class UsageStore:
@@ -213,6 +225,21 @@ class UsageStore:
         )
         cur.execute(
             """
+            CREATE TABLE IF NOT EXISTS activity_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                captured_at TEXT NOT NULL,
+                captured_at_utc TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                event_name TEXT,
+                count INTEGER NOT NULL,
+                session_id TEXT,
+                turn_index INTEGER,
+                source TEXT
+            )
+            """
+        )
+        cur.execute(
+            """
             CREATE TABLE IF NOT EXISTS weekly_quota_estimates (
                 week_start TEXT PRIMARY KEY,
                 week_end TEXT NOT NULL,
@@ -263,6 +290,24 @@ class UsageStore:
             """
             CREATE INDEX IF NOT EXISTS turns_captured_at_idx
             ON turns(captured_at)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS activity_event_type_idx
+            ON activity_events(event_type)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS activity_session_idx
+            ON activity_events(session_id)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS activity_captured_at_idx
+            ON activity_events(captured_at)
             """
         )
         cur.execute(
@@ -572,6 +617,33 @@ class UsageStore:
         )
         self.conn.commit()
 
+    def insert_activity_event(self, event: ActivityEvent) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO activity_events (
+                captured_at,
+                captured_at_utc,
+                event_type,
+                event_name,
+                count,
+                session_id,
+                turn_index,
+                source
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                event.captured_at,
+                event.captured_at_utc,
+                event.event_type,
+                event.event_name,
+                event.count,
+                event.session_id,
+                event.turn_index,
+                event.source,
+            ),
+        )
+        self.conn.commit()
+
     def iter_events(
         self,
         event_type: Optional[str] = None,
@@ -655,4 +727,8 @@ class UsageStore:
 
     def delete_turns_for_source(self, source: str) -> None:
         self.conn.execute("DELETE FROM turns WHERE source = ?", (source,))
+        self.conn.commit()
+
+    def delete_activity_events_for_source(self, source: str) -> None:
+        self.conn.execute("DELETE FROM activity_events WHERE source = ?", (source,))
         self.conn.commit()
