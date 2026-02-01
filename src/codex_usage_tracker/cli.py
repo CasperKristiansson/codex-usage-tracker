@@ -803,7 +803,7 @@ def main() -> None:
         store.close()
         print(
             f"Ingested {stats.lines} lines: {stats.turns} turns, "
-            f\"{stats.items} items, {stats.web_actions} web actions.\"
+            f"{stats.items} items, {stats.web_actions} web actions."
         )
         return
 
