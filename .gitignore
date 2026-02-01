@@ -2,3 +2,6 @@ codex-main
 .DS_Store
 *.pyc
 src/codex_usage_tracker.egg-info
+ui/node_modules
+ui/.next
+ui/.sync
