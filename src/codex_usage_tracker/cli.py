@@ -28,7 +28,15 @@ from .report import (
 from .rollout import RolloutContext, iter_rollout_files, parse_rollout_line
 from .app_server import ingest_app_server_output
 from .parser import StatusCapture, map_limits, parse_token_usage_line
-from .store import ActivityEvent, SessionMeta, TurnContext, UsageEvent, UsageStore
+from .store import (
+    ActivityEvent,
+    MessageEvent,
+    SessionMeta,
+    ToolCallEvent,
+    TurnContext,
+    UsageEvent,
+    UsageStore,
+)
 from importlib import resources
 
 
@@ -127,6 +135,7 @@ def ingest_rollouts(
         store.delete_events_for_source(str(file_path))
         store.delete_turns_for_source(str(file_path))
         store.delete_activity_events_for_source(str(file_path))
+        store.delete_content_for_source(str(file_path))
         context = RolloutContext()
         session_meta_saved = False
         try:
@@ -272,9 +281,9 @@ def ingest_rollouts(
                         store.insert_event(event)
                         stats.events += 1
 
+                    turn_key = context.session_id or f"file:{file_path}"
+                    turn_index = turn_counters.get(turn_key)
                     if parsed.activity_events:
-                        turn_key = context.session_id or f"file:{file_path}"
-                        turn_index = turn_counters.get(turn_key)
                         for activity in parsed.activity_events:
                             if activity.count <= 0:
                                 continue
@@ -285,6 +294,42 @@ def ingest_rollouts(
                                     event_type=activity.event_type,
                                     event_name=activity.event_name,
                                     count=activity.count,
+                                    session_id=context.session_id,
+                                    turn_index=turn_index,
+                                    source=str(file_path),
+                                )
+                            )
+                            stats.events += 1
+
+                    if parsed.messages:
+                        for message in parsed.messages:
+                            store.insert_message(
+                                MessageEvent(
+                                    captured_at=message.captured_at_local.isoformat(),
+                                    captured_at_utc=message.captured_at_utc.isoformat(),
+                                    role=message.role,
+                                    message_type=message.message_type,
+                                    message=message.message,
+                                    session_id=context.session_id,
+                                    turn_index=turn_index,
+                                    source=str(file_path),
+                                )
+                            )
+                            stats.events += 1
+
+                    if parsed.tool_calls:
+                        for tool_call in parsed.tool_calls:
+                            store.insert_tool_call(
+                                ToolCallEvent(
+                                    captured_at=tool_call.captured_at_local.isoformat(),
+                                    captured_at_utc=tool_call.captured_at_utc.isoformat(),
+                                    tool_type=tool_call.tool_type,
+                                    tool_name=tool_call.tool_name,
+                                    call_id=tool_call.call_id,
+                                    status=tool_call.status,
+                                    input_text=tool_call.input_text,
+                                    output_text=tool_call.output_text,
+                                    command=tool_call.command,
                                     session_id=context.session_id,
                                     turn_index=turn_index,
                                     source=str(file_path),

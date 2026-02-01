@@ -74,6 +74,28 @@ class ParsedActivityEvent:
 
 
 @dataclass
+class ParsedMessage:
+    captured_at_local: datetime
+    captured_at_utc: datetime
+    role: str
+    message_type: str
+    message: str
+
+
+@dataclass
+class ParsedToolCall:
+    captured_at_local: datetime
+    captured_at_utc: datetime
+    tool_type: str
+    tool_name: Optional[str]
+    call_id: Optional[str]
+    status: Optional[str]
+    input_text: Optional[str]
+    output_text: Optional[str]
+    command: Optional[str]
+
+
+@dataclass
 class ParsedTokenCount:
     captured_at_local: datetime
     captured_at_utc: datetime
@@ -105,6 +127,8 @@ class ParsedRolloutItem:
     turn_context: Optional[ParsedTurnContext] = None
     event_marker: Optional[ParsedEventMarker] = None
     activity_events: List[ParsedActivityEvent] = field(default_factory=list)
+    messages: List[ParsedMessage] = field(default_factory=list)
+    tool_calls: List[ParsedToolCall] = field(default_factory=list)
 
     def is_empty(self) -> bool:
         return (
@@ -113,6 +137,8 @@ class ParsedRolloutItem:
             and self.turn_context is None
             and self.event_marker is None
             and not self.activity_events
+            and not self.messages
+            and not self.tool_calls
         )
 
 
@@ -252,6 +278,17 @@ def _command_name(command: Optional[object]) -> Optional[str]:
     return None
 
 
+def _stringify(value: Optional[object]) -> Optional[str]:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    try:
+        return json.dumps(value, ensure_ascii=True)
+    except (TypeError, ValueError):
+        return None
+
+
 STATE_CHANGE_EVENTS = {
     "context_compacted",
     "thread_rolled_back",
@@ -360,6 +397,8 @@ def parse_rollout_line(
             return None, context
         response_type = payload.get("type")
         activity_events: List[ParsedActivityEvent] = []
+        messages: List[ParsedMessage] = []
+        tool_calls: List[ParsedToolCall] = []
         if response_type == "message":
             role = payload.get("role")
             if role == "user":
@@ -380,6 +419,27 @@ def parse_rollout_line(
                         event_name="response_item",
                     )
                 )
+            content = payload.get("content")
+            if isinstance(role, str) and isinstance(content, list):
+                parts = []
+                for item in content:
+                    if not isinstance(item, dict):
+                        continue
+                    item_type = item.get("type")
+                    if item_type in ("input_text", "output_text"):
+                        text = item.get("text")
+                        if isinstance(text, str) and text:
+                            parts.append(text)
+                if parts:
+                    messages.append(
+                        ParsedMessage(
+                            captured_at_local=captured_at_local,
+                            captured_at_utc=captured_at_utc,
+                            role=role,
+                            message_type="response_item",
+                            message="".join(parts),
+                        )
+                    )
         elif response_type == "local_shell_call":
             activity_events.append(
                 ParsedActivityEvent(
@@ -401,6 +461,22 @@ def parse_rollout_line(
                             event_name=command_name,
                         )
                     )
+            command_text = None
+            if action.get("type") == "exec":
+                command_text = _stringify(action.get("command"))
+            tool_calls.append(
+                ParsedToolCall(
+                    captured_at_local=captured_at_local,
+                    captured_at_utc=captured_at_utc,
+                    tool_type="local_shell",
+                    tool_name=None,
+                    call_id=_stringify(payload.get("call_id")),
+                    status=_stringify(payload.get("status")),
+                    input_text=_stringify(action) if action else None,
+                    output_text=None,
+                    command=command_text,
+                )
+            )
         elif response_type == "function_call":
             activity_events.append(
                 ParsedActivityEvent(
@@ -420,6 +496,33 @@ def parse_rollout_line(
                         event_name=name,
                     )
                 )
+            tool_calls.append(
+                ParsedToolCall(
+                    captured_at_local=captured_at_local,
+                    captured_at_utc=captured_at_utc,
+                    tool_type="function_call",
+                    tool_name=_stringify(name),
+                    call_id=_stringify(payload.get("call_id")),
+                    status=_stringify(payload.get("status")),
+                    input_text=_stringify(payload.get("arguments")),
+                    output_text=None,
+                    command=None,
+                )
+            )
+        elif response_type == "function_call_output":
+            tool_calls.append(
+                ParsedToolCall(
+                    captured_at_local=captured_at_local,
+                    captured_at_utc=captured_at_utc,
+                    tool_type="function_call_output",
+                    tool_name=None,
+                    call_id=_stringify(payload.get("call_id")),
+                    status=None,
+                    input_text=None,
+                    output_text=_stringify(payload.get("output")),
+                    command=None,
+                )
+            )
         elif response_type == "custom_tool_call":
             activity_events.append(
                 ParsedActivityEvent(
@@ -439,6 +542,33 @@ def parse_rollout_line(
                         event_name=name,
                     )
                 )
+            tool_calls.append(
+                ParsedToolCall(
+                    captured_at_local=captured_at_local,
+                    captured_at_utc=captured_at_utc,
+                    tool_type="custom_tool_call",
+                    tool_name=_stringify(name),
+                    call_id=_stringify(payload.get("call_id")),
+                    status=_stringify(payload.get("status")),
+                    input_text=_stringify(payload.get("input")),
+                    output_text=None,
+                    command=None,
+                )
+            )
+        elif response_type == "custom_tool_call_output":
+            tool_calls.append(
+                ParsedToolCall(
+                    captured_at_local=captured_at_local,
+                    captured_at_utc=captured_at_utc,
+                    tool_type="custom_tool_call_output",
+                    tool_name=None,
+                    call_id=_stringify(payload.get("call_id")),
+                    status=None,
+                    input_text=None,
+                    output_text=_stringify(payload.get("output")),
+                    command=None,
+                )
+            )
         elif response_type == "web_search_call":
             activity_events.append(
                 ParsedActivityEvent(
@@ -446,6 +576,20 @@ def parse_rollout_line(
                     captured_at_utc=captured_at_utc,
                     event_type="tool_call",
                     event_name="web_search",
+                )
+            )
+            action = payload.get("action") if isinstance(payload.get("action"), dict) else {}
+            tool_calls.append(
+                ParsedToolCall(
+                    captured_at_local=captured_at_local,
+                    captured_at_utc=captured_at_utc,
+                    tool_type="web_search_call",
+                    tool_name=_stringify(action.get("type")),
+                    call_id=None,
+                    status=_stringify(payload.get("status")),
+                    input_text=_stringify(action),
+                    output_text=None,
+                    command=None,
                 )
             )
         elif response_type in ("compaction", "compaction_summary"):
@@ -458,8 +602,15 @@ def parse_rollout_line(
                 )
             )
 
-        if activity_events:
-            return ParsedRolloutItem(activity_events=activity_events), context
+        if activity_events or messages or tool_calls:
+            return (
+                ParsedRolloutItem(
+                    activity_events=activity_events,
+                    messages=messages,
+                    tool_calls=tool_calls,
+                ),
+                context,
+            )
         return None, context
 
     if item_type != "event_msg":
@@ -473,7 +624,19 @@ def parse_rollout_line(
         if captured_at_local is None or captured_at_utc is None:
             return None, context
         activity_events: List[ParsedActivityEvent] = []
+        messages: List[ParsedMessage] = []
         if event_type == "user_message":
+            message = event_payload.get("message")
+            if isinstance(message, str) and message:
+                messages.append(
+                    ParsedMessage(
+                        captured_at_local=captured_at_local,
+                        captured_at_utc=captured_at_utc,
+                        role="user",
+                        message_type="event_msg",
+                        message=message,
+                    )
+                )
             activity_events.append(
                 ParsedActivityEvent(
                     captured_at_local=captured_at_local,
@@ -505,6 +668,17 @@ def parse_rollout_line(
                     )
                 )
         elif event_type == "agent_message":
+            message = event_payload.get("message")
+            if isinstance(message, str) and message:
+                messages.append(
+                    ParsedMessage(
+                        captured_at_local=captured_at_local,
+                        captured_at_utc=captured_at_utc,
+                        role="assistant",
+                        message_type="event_msg",
+                        message=message,
+                    )
+                )
             activity_events.append(
                 ParsedActivityEvent(
                     captured_at_local=captured_at_local,
@@ -514,6 +688,17 @@ def parse_rollout_line(
                 )
             )
         elif event_type == "agent_reasoning":
+            message = event_payload.get("text")
+            if isinstance(message, str) and message:
+                messages.append(
+                    ParsedMessage(
+                        captured_at_local=captured_at_local,
+                        captured_at_utc=captured_at_utc,
+                        role="reasoning",
+                        message_type="event_msg",
+                        message=message,
+                    )
+                )
             activity_events.append(
                 ParsedActivityEvent(
                     captured_at_local=captured_at_local,
@@ -523,6 +708,17 @@ def parse_rollout_line(
                 )
             )
         elif event_type == "agent_reasoning_raw_content":
+            message = event_payload.get("text")
+            if isinstance(message, str) and message:
+                messages.append(
+                    ParsedMessage(
+                        captured_at_local=captured_at_local,
+                        captured_at_utc=captured_at_utc,
+                        role="reasoning_raw",
+                        message_type="event_msg",
+                        message=message,
+                    )
+                )
             activity_events.append(
                 ParsedActivityEvent(
                     captured_at_local=captured_at_local,
@@ -532,8 +728,11 @@ def parse_rollout_line(
                 )
             )
 
-        if activity_events:
-            return ParsedRolloutItem(activity_events=activity_events), context
+        if activity_events or messages:
+            return (
+                ParsedRolloutItem(activity_events=activity_events, messages=messages),
+                context,
+            )
 
         if event_type in STATE_CHANGE_EVENTS:
             return (

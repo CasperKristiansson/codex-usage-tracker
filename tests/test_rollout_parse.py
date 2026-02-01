@@ -136,6 +136,8 @@ class RolloutParseTests(unittest.TestCase):
             if event.event_type == "user_local_image"
         )
         self.assertEqual(local_image_count, 2)
+        self.assertEqual(parsed.messages[0].role, "user")
+        self.assertEqual(parsed.messages[0].message, "hi")
 
         response_item_payload = {
             "timestamp": "2025-01-01T10:00:05.000Z",
@@ -158,6 +160,8 @@ class RolloutParseTests(unittest.TestCase):
             if event.event_type == "shell_command"
         )
         self.assertEqual(command_name, "git")
+        self.assertEqual(parsed.tool_calls[0].tool_type, "local_shell")
+        self.assertIn("git", parsed.tool_calls[0].command or "")
 
 
 if __name__ == "__main__":

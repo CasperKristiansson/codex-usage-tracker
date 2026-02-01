@@ -4,8 +4,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Optional
 
-SCHEMA_VERSION = 4
-INGEST_VERSION = 4
+SCHEMA_VERSION = 5
+INGEST_VERSION = 5
 
 
 @dataclass
@@ -129,6 +129,34 @@ class AppItemMetric:
     tool_name: Optional[str]
     web_search_action: Optional[str]
     source: Optional[str]
+
+
+@dataclass
+class MessageEvent:
+    captured_at: str
+    captured_at_utc: str
+    role: str
+    message_type: str
+    message: str
+    session_id: Optional[str] = None
+    turn_index: Optional[int] = None
+    source: Optional[str] = None
+
+
+@dataclass
+class ToolCallEvent:
+    captured_at: str
+    captured_at_utc: str
+    tool_type: str
+    tool_name: Optional[str]
+    call_id: Optional[str]
+    status: Optional[str]
+    input_text: Optional[str]
+    output_text: Optional[str]
+    command: Optional[str]
+    session_id: Optional[str] = None
+    turn_index: Optional[int] = None
+    source: Optional[str] = None
 
 
 class UsageStore:
@@ -304,6 +332,40 @@ class UsageStore:
         )
         cur.execute(
             """
+            CREATE TABLE IF NOT EXISTS content_messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                captured_at TEXT NOT NULL,
+                captured_at_utc TEXT NOT NULL,
+                role TEXT NOT NULL,
+                message_type TEXT NOT NULL,
+                message TEXT NOT NULL,
+                session_id TEXT,
+                turn_index INTEGER,
+                source TEXT
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS tool_calls (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                captured_at TEXT NOT NULL,
+                captured_at_utc TEXT NOT NULL,
+                tool_type TEXT NOT NULL,
+                tool_name TEXT,
+                call_id TEXT,
+                status TEXT,
+                input_text TEXT,
+                output_text TEXT,
+                command TEXT,
+                session_id TEXT,
+                turn_index INTEGER,
+                source TEXT
+            )
+            """
+        )
+        cur.execute(
+            """
             CREATE TABLE IF NOT EXISTS weekly_quota_estimates (
                 week_start TEXT PRIMARY KEY,
                 week_end TEXT NOT NULL,
@@ -396,6 +458,30 @@ class UsageStore:
             """
             CREATE INDEX IF NOT EXISTS app_items_type_idx
             ON app_items(item_type)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS content_messages_session_idx
+            ON content_messages(session_id)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS content_messages_captured_at_idx
+            ON content_messages(captured_at)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS tool_calls_session_idx
+            ON tool_calls(session_id)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS tool_calls_type_idx
+            ON tool_calls(tool_type)
             """
         )
         cur.execute(
@@ -796,6 +882,68 @@ class UsageStore:
         )
         self.conn.commit()
 
+    def insert_message(self, event: MessageEvent) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO content_messages (
+                captured_at,
+                captured_at_utc,
+                role,
+                message_type,
+                message,
+                session_id,
+                turn_index,
+                source
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                event.captured_at,
+                event.captured_at_utc,
+                event.role,
+                event.message_type,
+                event.message,
+                event.session_id,
+                event.turn_index,
+                event.source,
+            ),
+        )
+        self.conn.commit()
+
+    def insert_tool_call(self, event: ToolCallEvent) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO tool_calls (
+                captured_at,
+                captured_at_utc,
+                tool_type,
+                tool_name,
+                call_id,
+                status,
+                input_text,
+                output_text,
+                command,
+                session_id,
+                turn_index,
+                source
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                event.captured_at,
+                event.captured_at_utc,
+                event.tool_type,
+                event.tool_name,
+                event.call_id,
+                event.status,
+                event.input_text,
+                event.output_text,
+                event.command,
+                event.session_id,
+                event.turn_index,
+                event.source,
+            ),
+        )
+        self.conn.commit()
+
     def iter_events(
         self,
         event_type: Optional[str] = None,
@@ -888,4 +1036,9 @@ class UsageStore:
     def delete_app_server_events_for_source(self, source: str) -> None:
         self.conn.execute("DELETE FROM app_turns WHERE source = ?", (source,))
         self.conn.execute("DELETE FROM app_items WHERE source = ?", (source,))
+        self.conn.commit()
+
+    def delete_content_for_source(self, source: str) -> None:
+        self.conn.execute("DELETE FROM content_messages WHERE source = ?", (source,))
+        self.conn.execute("DELETE FROM tool_calls WHERE source = ?", (source,))
         self.conn.commit()
