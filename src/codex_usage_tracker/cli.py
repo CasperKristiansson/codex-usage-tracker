@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime, time as dt_time, timedelta
 from pathlib import Path
 from typing import Dict, Iterable, Optional, Tuple
+from zoneinfo import ZoneInfo
 
 from .platform import default_db_path, default_rollouts_dir
 from .report import (
@@ -25,6 +26,7 @@ from .report import (
     to_local,
 )
 from .rollout import RolloutContext, iter_rollout_files, parse_rollout_line
+from .parser import StatusCapture, map_limits, parse_token_usage_line
 from .store import ActivityEvent, SessionMeta, TurnContext, UsageEvent, UsageStore
 from importlib import resources
 
@@ -37,6 +39,13 @@ class IngestStats:
     lines: int = 0
     events: int = 0
     errors: int = 0
+
+
+@dataclass
+class CliLogStats:
+    lines: int = 0
+    status_snapshots: int = 0
+    usage_lines: int = 0
 
 
 class ProgressPrinter:
@@ -294,6 +303,92 @@ def ingest_rollouts(
     return stats
 
 
+def ingest_cli_output(
+    log_path: Path,
+    store: UsageStore,
+) -> CliLogStats:
+    stats = CliLogStats()
+    capture = StatusCapture()
+    stat_info = None
+    if log_path.name != "-":
+        try:
+            stat_info = log_path.stat()
+        except OSError:
+            return stats
+        if not store.file_needs_ingest(str(log_path), stat_info.st_mtime_ns, stat_info.st_size):
+            return stats
+        store.delete_events_for_source(str(log_path))
+
+    def _handle_snapshot(snapshot) -> None:
+        nonlocal stats
+        captured_at = datetime.now(STOCKHOLM_TZ)
+        limit_5h_percent_left, limit_5h_resets_at, limit_weekly_percent_left, limit_weekly_resets_at = map_limits(snapshot)
+        token_usage = snapshot.token_usage or {}
+        context_window = snapshot.context_window or {}
+        event = UsageEvent(
+            captured_at=captured_at.isoformat(),
+            captured_at_utc=captured_at.astimezone(ZoneInfo("UTC")).isoformat(),
+            event_type="status_snapshot",
+            total_tokens=token_usage.get("total_tokens"),
+            input_tokens=token_usage.get("input_tokens"),
+            cached_input_tokens=None,
+            output_tokens=token_usage.get("output_tokens"),
+            reasoning_output_tokens=None,
+            context_used=context_window.get("used_tokens"),
+            context_total=context_window.get("total_tokens"),
+            context_percent_left=context_window.get("percent_left"),
+            limit_5h_percent_left=limit_5h_percent_left,
+            limit_5h_resets_at=limit_5h_resets_at,
+            limit_weekly_percent_left=limit_weekly_percent_left,
+            limit_weekly_resets_at=limit_weekly_resets_at,
+            model=snapshot.model,
+            directory=snapshot.directory,
+            session_id=snapshot.session_id,
+            codex_version=snapshot.codex_version,
+            source=str(log_path),
+        )
+        store.insert_event(event)
+        stats.status_snapshots += 1
+
+    def _handle_usage(tokens: Dict[str, int]) -> None:
+        nonlocal stats
+        captured_at = datetime.now(STOCKHOLM_TZ)
+        event = UsageEvent(
+            captured_at=captured_at.isoformat(),
+            captured_at_utc=captured_at.astimezone(ZoneInfo("UTC")).isoformat(),
+            event_type="usage_line",
+            total_tokens=tokens.get("total_tokens"),
+            input_tokens=tokens.get("input_tokens"),
+            cached_input_tokens=tokens.get("cached_input_tokens"),
+            output_tokens=tokens.get("output_tokens"),
+            reasoning_output_tokens=tokens.get("reasoning_output_tokens"),
+            source=str(log_path),
+        )
+        store.insert_event(event)
+        stats.usage_lines += 1
+
+    try:
+        if log_path.name == "-":
+            handle = sys.stdin
+        else:
+            handle = log_path.open("r", encoding="utf-8")
+        with handle:
+            for raw in handle:
+                stats.lines += 1
+                usage = parse_token_usage_line(raw)
+                if usage:
+                    _handle_usage(usage)
+                snapshot = capture.feed_line(raw)
+                if snapshot:
+                    _handle_snapshot(snapshot)
+    except OSError:
+        stats.lines = 0
+        return stats
+    if stat_info is not None:
+        store.mark_file_ingested(str(log_path), stat_info.st_mtime_ns, stat_info.st_size)
+    return stats
+
+
 def _load_usage_events(store: UsageStore) -> Iterable[Dict[str, object]]:
     rows = store.iter_events()
     events = [dict(row) for row in rows]
@@ -522,6 +617,18 @@ def build_parser() -> argparse.ArgumentParser:
     web_parser.add_argument("--to", dest="to_date", type=str, default=None)
     web_parser.add_argument("--port", type=int, default=None)
 
+    ingest_cli_parser = subparsers.add_parser(
+        "ingest-cli",
+        help="Ingest Codex CLI output logs for status snapshots",
+    )
+    ingest_cli_parser.add_argument("--db", type=Path, default=None)
+    ingest_cli_parser.add_argument(
+        "--log",
+        type=Path,
+        default=Path("-"),
+        help="Path to the CLI output log (use '-' for stdin)",
+    )
+
     clear_parser = subparsers.add_parser("clear-db", help="Delete the local usage DB")
     clear_parser.add_argument("--db", type=Path, default=None)
     clear_parser.add_argument("--yes", action="store_true")
@@ -622,6 +729,15 @@ def main() -> None:
             return
         _print_status(dict(row))
         store.close()
+        return
+
+    if args.command == "ingest-cli":
+        stats = ingest_cli_output(args.log, store)
+        store.close()
+        print(
+            f"Ingested {stats.lines} lines: {stats.status_snapshots} status snapshots, "
+            f"{stats.usage_lines} usage lines."
+        )
         return
 
     if args.command == "web":
