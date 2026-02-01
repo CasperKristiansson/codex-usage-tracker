@@ -26,6 +26,7 @@ from .report import (
     to_local,
 )
 from .rollout import RolloutContext, iter_rollout_files, parse_rollout_line
+from .app_server import ingest_app_server_output
 from .parser import StatusCapture, map_limits, parse_token_usage_line
 from .store import ActivityEvent, SessionMeta, TurnContext, UsageEvent, UsageStore
 from importlib import resources
@@ -629,6 +630,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Path to the CLI output log (use '-' for stdin)",
     )
 
+    ingest_app_parser = subparsers.add_parser(
+        "ingest-app-server",
+        help="Ingest codex app-server JSON-RPC logs for timing metrics",
+    )
+    ingest_app_parser.add_argument("--db", type=Path, default=None)
+    ingest_app_parser.add_argument(
+        "--log",
+        type=Path,
+        default=Path("-"),
+        help="Path to the app-server JSON-RPC log (use '-' for stdin)",
+    )
+
     clear_parser = subparsers.add_parser("clear-db", help="Delete the local usage DB")
     clear_parser.add_argument("--db", type=Path, default=None)
     clear_parser.add_argument("--yes", action="store_true")
@@ -737,6 +750,15 @@ def main() -> None:
         print(
             f"Ingested {stats.lines} lines: {stats.status_snapshots} status snapshots, "
             f"{stats.usage_lines} usage lines."
+        )
+        return
+
+    if args.command == "ingest-app-server":
+        stats = ingest_app_server_output(args.log, store)
+        store.close()
+        print(
+            f"Ingested {stats.lines} lines: {stats.turns} turns, "
+            f\"{stats.items} items, {stats.web_actions} web actions.\"
         )
         return
 

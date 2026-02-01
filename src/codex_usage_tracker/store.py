@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Optional
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 INGEST_VERSION = 4
 
 
@@ -100,6 +100,35 @@ class ActivityEvent:
     session_id: Optional[str] = None
     turn_index: Optional[int] = None
     source: Optional[str] = None
+
+
+@dataclass
+class AppTurnMetric:
+    thread_id: Optional[str]
+    turn_id: Optional[str]
+    status: Optional[str]
+    started_at: Optional[str]
+    completed_at: Optional[str]
+    duration_ms: Optional[int]
+    source: Optional[str]
+
+
+@dataclass
+class AppItemMetric:
+    thread_id: Optional[str]
+    turn_id: Optional[str]
+    item_id: Optional[str]
+    item_type: Optional[str]
+    status: Optional[str]
+    started_at: Optional[str]
+    completed_at: Optional[str]
+    duration_ms: Optional[int]
+    command_name: Optional[str]
+    exit_code: Optional[int]
+    output_bytes: Optional[int]
+    tool_name: Optional[str]
+    web_search_action: Optional[str]
+    source: Optional[str]
 
 
 class UsageStore:
@@ -240,6 +269,41 @@ class UsageStore:
         )
         cur.execute(
             """
+            CREATE TABLE IF NOT EXISTS app_turns (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                thread_id TEXT,
+                turn_id TEXT,
+                status TEXT,
+                started_at TEXT,
+                completed_at TEXT,
+                duration_ms INTEGER,
+                source TEXT
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS app_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                thread_id TEXT,
+                turn_id TEXT,
+                item_id TEXT,
+                item_type TEXT,
+                status TEXT,
+                started_at TEXT,
+                completed_at TEXT,
+                duration_ms INTEGER,
+                command_name TEXT,
+                exit_code INTEGER,
+                output_bytes INTEGER,
+                tool_name TEXT,
+                web_search_action TEXT,
+                source TEXT
+            )
+            """
+        )
+        cur.execute(
+            """
             CREATE TABLE IF NOT EXISTS weekly_quota_estimates (
                 week_start TEXT PRIMARY KEY,
                 week_end TEXT NOT NULL,
@@ -308,6 +372,30 @@ class UsageStore:
             """
             CREATE INDEX IF NOT EXISTS activity_captured_at_idx
             ON activity_events(captured_at)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS app_turns_thread_idx
+            ON app_turns(thread_id)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS app_turns_turn_idx
+            ON app_turns(turn_id)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS app_items_turn_idx
+            ON app_items(turn_id)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS app_items_type_idx
+            ON app_items(item_type)
             """
         )
         cur.execute(
@@ -644,6 +732,70 @@ class UsageStore:
         )
         self.conn.commit()
 
+    def insert_app_turn(self, metric: AppTurnMetric) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO app_turns (
+                thread_id,
+                turn_id,
+                status,
+                started_at,
+                completed_at,
+                duration_ms,
+                source
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                metric.thread_id,
+                metric.turn_id,
+                metric.status,
+                metric.started_at,
+                metric.completed_at,
+                metric.duration_ms,
+                metric.source,
+            ),
+        )
+        self.conn.commit()
+
+    def insert_app_item(self, metric: AppItemMetric) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO app_items (
+                thread_id,
+                turn_id,
+                item_id,
+                item_type,
+                status,
+                started_at,
+                completed_at,
+                duration_ms,
+                command_name,
+                exit_code,
+                output_bytes,
+                tool_name,
+                web_search_action,
+                source
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                metric.thread_id,
+                metric.turn_id,
+                metric.item_id,
+                metric.item_type,
+                metric.status,
+                metric.started_at,
+                metric.completed_at,
+                metric.duration_ms,
+                metric.command_name,
+                metric.exit_code,
+                metric.output_bytes,
+                metric.tool_name,
+                metric.web_search_action,
+                metric.source,
+            ),
+        )
+        self.conn.commit()
+
     def iter_events(
         self,
         event_type: Optional[str] = None,
@@ -731,4 +883,9 @@ class UsageStore:
 
     def delete_activity_events_for_source(self, source: str) -> None:
         self.conn.execute("DELETE FROM activity_events WHERE source = ?", (source,))
+        self.conn.commit()
+
+    def delete_app_server_events_for_source(self, source: str) -> None:
+        self.conn.execute("DELETE FROM app_turns WHERE source = ?", (source,))
+        self.conn.execute("DELETE FROM app_items WHERE source = ?", (source,))
         self.conn.commit()
