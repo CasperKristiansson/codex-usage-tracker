@@ -100,8 +100,14 @@ def ingest_app_server_output(log_path: Path, store: UsageStore) -> AppServerStat
 
     turn_starts: Dict[Tuple[Optional[str], Optional[str]], datetime] = {}
     item_starts: Dict[Tuple[Optional[str], Optional[str], Optional[str]], datetime] = {}
-    item_meta: Dict[Tuple[Optional[str], Optional[str], Optional[str]], Tuple[Optional[str], Optional[str], Optional[str]]] = {}
+    item_meta: Dict[
+        Tuple[Optional[str], Optional[str], Optional[str]],
+        Tuple[Optional[str], Optional[str], Optional[str]],
+    ] = {}
     command_output_bytes: Dict[str, int] = {}
+    pending_turns: list[AppTurnMetric] = []
+    pending_items: list[AppItemMetric] = []
+    batch_size = 2000
 
     try:
         if log_path.name == "-":
@@ -146,7 +152,7 @@ def ingest_app_server_output(log_path: Path, store: UsageStore) -> AppServerStat
                         duration_ms=_duration_ms(started_at, now),
                         source=str(log_path),
                     )
-                    store.insert_app_turn(metric)
+                    pending_turns.append(metric)
                     stats.turns += 1
                     continue
 
@@ -191,7 +197,7 @@ def ingest_app_server_output(log_path: Path, store: UsageStore) -> AppServerStat
                         web_search_action="search" if item_type == "webSearch" else None,
                         source=str(log_path),
                     )
-                    store.insert_app_item(metric)
+                    pending_items.append(metric)
                     stats.items += 1
                     continue
 
@@ -225,8 +231,17 @@ def ingest_app_server_output(log_path: Path, store: UsageStore) -> AppServerStat
                         web_search_action=action,
                         source=str(log_path),
                     )
-                    store.insert_app_item(metric)
+                    pending_items.append(metric)
                     stats.web_actions += 1
+                    continue
+                if len(pending_turns) >= batch_size:
+                    store.insert_app_turns_bulk(pending_turns)
+                    pending_turns = []
+                if len(pending_items) >= batch_size:
+                    store.insert_app_items_bulk(pending_items)
+                    pending_items = []
+            store.insert_app_turns_bulk(pending_turns)
+            store.insert_app_items_bulk(pending_items)
             return stats
 
         with log_path.open("r", encoding="utf-8") as handle:
@@ -269,7 +284,7 @@ def ingest_app_server_output(log_path: Path, store: UsageStore) -> AppServerStat
                         duration_ms=_duration_ms(started_at, now),
                         source=str(log_path),
                     )
-                    store.insert_app_turn(metric)
+                    pending_turns.append(metric)
                     stats.turns += 1
                     continue
 
@@ -312,7 +327,7 @@ def ingest_app_server_output(log_path: Path, store: UsageStore) -> AppServerStat
                         web_search_action="search" if item_type == "webSearch" else None,
                         source=str(log_path),
                     )
-                    store.insert_app_item(metric)
+                    pending_items.append(metric)
                     stats.items += 1
                     continue
 
@@ -346,8 +361,17 @@ def ingest_app_server_output(log_path: Path, store: UsageStore) -> AppServerStat
                         web_search_action=action,
                         source=str(log_path),
                     )
-                    store.insert_app_item(metric)
+                    pending_items.append(metric)
                     stats.web_actions += 1
+                    continue
+                if len(pending_turns) >= batch_size:
+                    store.insert_app_turns_bulk(pending_turns)
+                    pending_turns = []
+                if len(pending_items) >= batch_size:
+                    store.insert_app_items_bulk(pending_items)
+                    pending_items = []
+        store.insert_app_turns_bulk(pending_turns)
+        store.insert_app_items_bulk(pending_items)
     except OSError:
         stats.errors += 1
         return stats

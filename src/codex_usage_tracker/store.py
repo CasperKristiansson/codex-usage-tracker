@@ -165,6 +165,9 @@ class UsageStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(self.path)
         self.conn.row_factory = sqlite3.Row
+        self.conn.execute("PRAGMA journal_mode=WAL")
+        self.conn.execute("PRAGMA synchronous=NORMAL")
+        self.conn.execute("PRAGMA temp_store=MEMORY")
         self._init_schema()
 
     def close(self) -> None:
@@ -679,6 +682,98 @@ class UsageStore:
         )
         self.conn.commit()
 
+    def insert_events_bulk(self, events: Iterable[UsageEvent]) -> int:
+        batch = list(events)
+        if not batch:
+            return 0
+        cur = self.conn.cursor()
+        cur.executemany(
+            """
+            INSERT OR IGNORE INTO events (
+                captured_at,
+                captured_at_utc,
+                event_type,
+                total_tokens,
+                input_tokens,
+                cached_input_tokens,
+                output_tokens,
+                reasoning_output_tokens,
+                lifetime_total_tokens,
+                lifetime_input_tokens,
+                lifetime_cached_input_tokens,
+                lifetime_output_tokens,
+                lifetime_reasoning_output_tokens,
+                context_used,
+                context_total,
+                context_percent_left,
+                limit_5h_percent_left,
+                limit_5h_resets_at,
+                limit_weekly_percent_left,
+                limit_weekly_resets_at,
+                limit_5h_used_percent,
+                limit_5h_window_minutes,
+                limit_5h_resets_at_seconds,
+                limit_weekly_used_percent,
+                limit_weekly_window_minutes,
+                limit_weekly_resets_at_seconds,
+                rate_limit_has_credits,
+                rate_limit_unlimited,
+                rate_limit_balance,
+                rate_limit_plan_type,
+                model,
+                directory,
+                session_id,
+                codex_version,
+                source
+            ) VALUES (
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+            )
+            """,
+            [
+                (
+                    event.captured_at,
+                    event.captured_at_utc,
+                    event.event_type,
+                    event.total_tokens,
+                    event.input_tokens,
+                    event.cached_input_tokens,
+                    event.output_tokens,
+                    event.reasoning_output_tokens,
+                    event.lifetime_total_tokens,
+                    event.lifetime_input_tokens,
+                    event.lifetime_cached_input_tokens,
+                    event.lifetime_output_tokens,
+                    event.lifetime_reasoning_output_tokens,
+                    event.context_used,
+                    event.context_total,
+                    event.context_percent_left,
+                    event.limit_5h_percent_left,
+                    event.limit_5h_resets_at,
+                    event.limit_weekly_percent_left,
+                    event.limit_weekly_resets_at,
+                    event.limit_5h_used_percent,
+                    event.limit_5h_window_minutes,
+                    event.limit_5h_resets_at_seconds,
+                    event.limit_weekly_used_percent,
+                    event.limit_weekly_window_minutes,
+                    event.limit_weekly_resets_at_seconds,
+                    event.rate_limit_has_credits,
+                    event.rate_limit_unlimited,
+                    event.rate_limit_balance,
+                    event.rate_limit_plan_type,
+                    event.model,
+                    event.directory,
+                    event.session_id,
+                    event.codex_version,
+                    event.source,
+                )
+                for event in batch
+            ],
+        )
+        self.conn.commit()
+        return len(batch)
+
     def upsert_session(self, session: SessionMeta) -> None:
         self.conn.execute(
             """
@@ -791,6 +886,72 @@ class UsageStore:
         )
         self.conn.commit()
 
+    def insert_turns_bulk(self, turns: Iterable[TurnContext]) -> int:
+        batch = list(turns)
+        if not batch:
+            return 0
+        self.conn.executemany(
+            """
+            INSERT INTO turns (
+                session_id,
+                turn_index,
+                captured_at,
+                captured_at_utc,
+                model,
+                cwd,
+                approval_policy,
+                sandbox_policy_type,
+                sandbox_network_access,
+                sandbox_writable_roots,
+                sandbox_exclude_tmpdir_env_var,
+                sandbox_exclude_slash_tmp,
+                truncation_policy_mode,
+                truncation_policy_limit,
+                reasoning_effort,
+                reasoning_summary,
+                has_base_instructions,
+                has_user_instructions,
+                has_developer_instructions,
+                has_final_output_json_schema,
+                source
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    turn.session_id,
+                    turn.turn_index,
+                    turn.captured_at,
+                    turn.captured_at_utc,
+                    turn.model,
+                    turn.cwd,
+                    turn.approval_policy,
+                    turn.sandbox_policy_type,
+                    1 if turn.sandbox_network_access else 0
+                    if turn.sandbox_network_access is not None
+                    else None,
+                    turn.sandbox_writable_roots,
+                    1 if turn.sandbox_exclude_tmpdir_env_var else 0
+                    if turn.sandbox_exclude_tmpdir_env_var is not None
+                    else None,
+                    1 if turn.sandbox_exclude_slash_tmp else 0
+                    if turn.sandbox_exclude_slash_tmp is not None
+                    else None,
+                    turn.truncation_policy_mode,
+                    turn.truncation_policy_limit,
+                    turn.reasoning_effort,
+                    turn.reasoning_summary,
+                    1 if turn.has_base_instructions else 0,
+                    1 if turn.has_user_instructions else 0,
+                    1 if turn.has_developer_instructions else 0,
+                    1 if turn.has_final_output_json_schema else 0,
+                    turn.source,
+                )
+                for turn in batch
+            ],
+        )
+        self.conn.commit()
+        return len(batch)
+
     def insert_activity_event(self, event: ActivityEvent) -> None:
         self.conn.execute(
             """
@@ -818,6 +979,40 @@ class UsageStore:
         )
         self.conn.commit()
 
+    def insert_activity_events_bulk(self, events: Iterable[ActivityEvent]) -> int:
+        batch = list(events)
+        if not batch:
+            return 0
+        self.conn.executemany(
+            """
+            INSERT INTO activity_events (
+                captured_at,
+                captured_at_utc,
+                event_type,
+                event_name,
+                count,
+                session_id,
+                turn_index,
+                source
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    event.captured_at,
+                    event.captured_at_utc,
+                    event.event_type,
+                    event.event_name,
+                    event.count,
+                    event.session_id,
+                    event.turn_index,
+                    event.source,
+                )
+                for event in batch
+            ],
+        )
+        self.conn.commit()
+        return len(batch)
+
     def insert_app_turn(self, metric: AppTurnMetric) -> None:
         self.conn.execute(
             """
@@ -842,6 +1037,38 @@ class UsageStore:
             ),
         )
         self.conn.commit()
+
+    def insert_app_turns_bulk(self, metrics: Iterable[AppTurnMetric]) -> int:
+        batch = list(metrics)
+        if not batch:
+            return 0
+        self.conn.executemany(
+            """
+            INSERT INTO app_turns (
+                thread_id,
+                turn_id,
+                status,
+                started_at,
+                completed_at,
+                duration_ms,
+                source
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    metric.thread_id,
+                    metric.turn_id,
+                    metric.status,
+                    metric.started_at,
+                    metric.completed_at,
+                    metric.duration_ms,
+                    metric.source,
+                )
+                for metric in batch
+            ],
+        )
+        self.conn.commit()
+        return len(batch)
 
     def insert_app_item(self, metric: AppItemMetric) -> None:
         self.conn.execute(
@@ -882,6 +1109,52 @@ class UsageStore:
         )
         self.conn.commit()
 
+    def insert_app_items_bulk(self, metrics: Iterable[AppItemMetric]) -> int:
+        batch = list(metrics)
+        if not batch:
+            return 0
+        self.conn.executemany(
+            """
+            INSERT INTO app_items (
+                thread_id,
+                turn_id,
+                item_id,
+                item_type,
+                status,
+                started_at,
+                completed_at,
+                duration_ms,
+                command_name,
+                exit_code,
+                output_bytes,
+                tool_name,
+                web_search_action,
+                source
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    metric.thread_id,
+                    metric.turn_id,
+                    metric.item_id,
+                    metric.item_type,
+                    metric.status,
+                    metric.started_at,
+                    metric.completed_at,
+                    metric.duration_ms,
+                    metric.command_name,
+                    metric.exit_code,
+                    metric.output_bytes,
+                    metric.tool_name,
+                    metric.web_search_action,
+                    metric.source,
+                )
+                for metric in batch
+            ],
+        )
+        self.conn.commit()
+        return len(batch)
+
     def insert_message(self, event: MessageEvent) -> None:
         self.conn.execute(
             """
@@ -908,6 +1181,40 @@ class UsageStore:
             ),
         )
         self.conn.commit()
+
+    def insert_messages_bulk(self, events: Iterable[MessageEvent]) -> int:
+        batch = list(events)
+        if not batch:
+            return 0
+        self.conn.executemany(
+            """
+            INSERT INTO content_messages (
+                captured_at,
+                captured_at_utc,
+                role,
+                message_type,
+                message,
+                session_id,
+                turn_index,
+                source
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    event.captured_at,
+                    event.captured_at_utc,
+                    event.role,
+                    event.message_type,
+                    event.message,
+                    event.session_id,
+                    event.turn_index,
+                    event.source,
+                )
+                for event in batch
+            ],
+        )
+        self.conn.commit()
+        return len(batch)
 
     def insert_tool_call(self, event: ToolCallEvent) -> None:
         self.conn.execute(
@@ -943,6 +1250,48 @@ class UsageStore:
             ),
         )
         self.conn.commit()
+
+    def insert_tool_calls_bulk(self, events: Iterable[ToolCallEvent]) -> int:
+        batch = list(events)
+        if not batch:
+            return 0
+        self.conn.executemany(
+            """
+            INSERT INTO tool_calls (
+                captured_at,
+                captured_at_utc,
+                tool_type,
+                tool_name,
+                call_id,
+                status,
+                input_text,
+                output_text,
+                command,
+                session_id,
+                turn_index,
+                source
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    event.captured_at,
+                    event.captured_at_utc,
+                    event.tool_type,
+                    event.tool_name,
+                    event.call_id,
+                    event.status,
+                    event.input_text,
+                    event.output_text,
+                    event.command,
+                    event.session_id,
+                    event.turn_index,
+                    event.source,
+                )
+                for event in batch
+            ],
+        )
+        self.conn.commit()
+        return len(batch)
 
     def iter_events(
         self,

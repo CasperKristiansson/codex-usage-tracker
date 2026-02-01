@@ -7,7 +7,7 @@ import webbrowser
 from dataclasses import dataclass
 from datetime import datetime, time as dt_time, timedelta
 from pathlib import Path
-from typing import Dict, Iterable, Optional, Tuple
+from typing import Callable, Dict, Iterable, Optional, Tuple
 from zoneinfo import ZoneInfo
 
 from .platform import default_db_path, default_rollouts_dir
@@ -55,6 +55,7 @@ class CliLogStats:
     lines: int = 0
     status_snapshots: int = 0
     usage_lines: int = 0
+    events: int = 0
 
 
 class ProgressPrinter:
@@ -118,6 +119,9 @@ def ingest_rollouts(
     store: UsageStore,
     start: Optional[datetime],
     end: Optional[datetime],
+    progress_callback: Optional[
+        Callable[[IngestStats, int, int, Optional[Path]], None]
+    ] = None,
 ) -> IngestStats:
     store.ensure_ingest_version()
     stats = IngestStats()
@@ -125,11 +129,17 @@ def ingest_rollouts(
     stats.files_total = len(files)
     progress = ProgressPrinter(stats.files_total)
     turn_counters: Dict[str, int] = {}
+    batch_size = 2000
+
+    if progress_callback is not None:
+        progress_callback(stats, 0, stats.files_total, None)
 
     for idx, (file_path, mtime_ns, size, _) in enumerate(files, start=1):
         if not store.file_needs_ingest(str(file_path), mtime_ns, size):
             stats.files_skipped += 1
             progress.update(idx, stats, file_path)
+            if progress_callback is not None:
+                progress_callback(stats, idx, stats.files_total, file_path)
             continue
 
         store.delete_events_for_source(str(file_path))
@@ -138,6 +148,11 @@ def ingest_rollouts(
         store.delete_content_for_source(str(file_path))
         context = RolloutContext()
         session_meta_saved = False
+        pending_events: list[UsageEvent] = []
+        pending_turns: list[TurnContext] = []
+        pending_activity: list[ActivityEvent] = []
+        pending_messages: list[MessageEvent] = []
+        pending_tool_calls: list[ToolCallEvent] = []
         try:
             with file_path.open("r", encoding="utf-8") as handle:
                 for raw in handle:
@@ -184,7 +199,7 @@ def ingest_rollouts(
                         turn_key = context.session_id or f"file:{file_path}"
                         turn_index = turn_counters.get(turn_key, 0) + 1
                         turn_counters[turn_key] = turn_index
-                        store.insert_turn(
+                        pending_turns.append(
                             TurnContext(
                                 captured_at=turn.captured_at_local.isoformat(),
                                 captured_at_utc=turn.captured_at_utc.isoformat(),
@@ -212,7 +227,8 @@ def ingest_rollouts(
 
                     if parsed.token_count is not None:
                         token_count = parsed.token_count
-                        event = UsageEvent(
+                        pending_events.append(
+                            UsageEvent(
                             captured_at=token_count.captured_at_local.isoformat(),
                             captured_at_utc=token_count.captured_at_utc.isoformat(),
                             event_type="token_count",
@@ -263,12 +279,12 @@ def ingest_rollouts(
                             codex_version=context.codex_version,
                             source=str(file_path),
                         )
-                        store.insert_event(event)
-                        stats.events += 1
+                        )
 
                     if parsed.event_marker is not None:
                         marker = parsed.event_marker
-                        event = UsageEvent(
+                        pending_events.append(
+                            UsageEvent(
                             captured_at=marker.captured_at_local.isoformat(),
                             captured_at_utc=marker.captured_at_utc.isoformat(),
                             event_type=marker.event_type,
@@ -278,8 +294,7 @@ def ingest_rollouts(
                             codex_version=context.codex_version,
                             source=str(file_path),
                         )
-                        store.insert_event(event)
-                        stats.events += 1
+                        )
 
                     turn_key = context.session_id or f"file:{file_path}"
                     turn_index = turn_counters.get(turn_key)
@@ -287,7 +302,7 @@ def ingest_rollouts(
                         for activity in parsed.activity_events:
                             if activity.count <= 0:
                                 continue
-                            store.insert_activity_event(
+                            pending_activity.append(
                                 ActivityEvent(
                                     captured_at=activity.captured_at_local.isoformat(),
                                     captured_at_utc=activity.captured_at_utc.isoformat(),
@@ -299,11 +314,10 @@ def ingest_rollouts(
                                     source=str(file_path),
                                 )
                             )
-                            stats.events += 1
 
                     if parsed.messages:
                         for message in parsed.messages:
-                            store.insert_message(
+                            pending_messages.append(
                                 MessageEvent(
                                     captured_at=message.captured_at_local.isoformat(),
                                     captured_at_utc=message.captured_at_utc.isoformat(),
@@ -315,11 +329,10 @@ def ingest_rollouts(
                                     source=str(file_path),
                                 )
                             )
-                            stats.events += 1
 
                     if parsed.tool_calls:
                         for tool_call in parsed.tool_calls:
-                            store.insert_tool_call(
+                            pending_tool_calls.append(
                                 ToolCallEvent(
                                     captured_at=tool_call.captured_at_local.isoformat(),
                                     captured_at_utc=tool_call.captured_at_utc.isoformat(),
@@ -335,17 +348,41 @@ def ingest_rollouts(
                                     source=str(file_path),
                                 )
                             )
-                            stats.events += 1
+
+                    if len(pending_events) >= batch_size:
+                        stats.events += store.insert_events_bulk(pending_events)
+                        pending_events = []
+                    if len(pending_turns) >= batch_size:
+                        store.insert_turns_bulk(pending_turns)
+                        pending_turns = []
+                    if len(pending_activity) >= batch_size:
+                        stats.events += store.insert_activity_events_bulk(pending_activity)
+                        pending_activity = []
+                    if len(pending_messages) >= batch_size:
+                        stats.events += store.insert_messages_bulk(pending_messages)
+                        pending_messages = []
+                    if len(pending_tool_calls) >= batch_size:
+                        stats.events += store.insert_tool_calls_bulk(pending_tool_calls)
+                        pending_tool_calls = []
         except OSError:
             stats.errors += 1
             progress.update(idx, stats, file_path)
             continue
 
+        stats.events += store.insert_events_bulk(pending_events)
+        store.insert_turns_bulk(pending_turns)
+        stats.events += store.insert_activity_events_bulk(pending_activity)
+        stats.events += store.insert_messages_bulk(pending_messages)
+        stats.events += store.insert_tool_calls_bulk(pending_tool_calls)
         store.mark_file_ingested(str(file_path), mtime_ns, size)
         stats.files_parsed += 1
         progress.update(idx, stats, file_path)
+        if progress_callback is not None:
+            progress_callback(stats, idx, stats.files_total, file_path)
 
     progress.finish()
+    if progress_callback is not None:
+        progress_callback(stats, stats.files_total, stats.files_total, None)
     return stats
 
 
@@ -356,6 +393,7 @@ def ingest_cli_output(
     stats = CliLogStats()
     capture = StatusCapture()
     stat_info = None
+    pending_events: list[UsageEvent] = []
     if log_path.name != "-":
         try:
             stat_info = log_path.stat()
@@ -393,7 +431,7 @@ def ingest_cli_output(
             codex_version=snapshot.codex_version,
             source=str(log_path),
         )
-        store.insert_event(event)
+        pending_events.append(event)
         stats.status_snapshots += 1
 
     def _handle_usage(tokens: Dict[str, int]) -> None:
@@ -410,7 +448,7 @@ def ingest_cli_output(
             reasoning_output_tokens=tokens.get("reasoning_output_tokens"),
             source=str(log_path),
         )
-        store.insert_event(event)
+        pending_events.append(event)
         stats.usage_lines += 1
 
     try:
@@ -430,6 +468,7 @@ def ingest_cli_output(
     except OSError:
         stats.lines = 0
         return stats
+    stats.events += store.insert_events_bulk(pending_events)
     if stat_info is not None:
         store.mark_file_ingested(str(log_path), stat_info.st_mtime_ns, stat_info.st_size)
     return stats
