@@ -19,6 +19,7 @@ import { asRoute } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { TagInput } from "@/components/ui/tag-input";
 
 const RANGE_PRESETS = [
   { value: "24h", label: "24h", hours: 24 },
@@ -27,6 +28,12 @@ const RANGE_PRESETS = [
   { value: "30d", label: "30d", hours: 24 * 30 },
   { value: "custom", label: "Custom" }
 ];
+
+type FilterOptions = {
+  models: string[];
+  directories: string[];
+  sources: string[];
+};
 
 const formatDateInput = (iso: string) => {
   const date = new Date(iso);
@@ -75,6 +82,9 @@ const GlobalFiltersBar = () => {
     () => parseFilters(new URLSearchParams(searchParams.toString()), defaults),
     [searchParams, defaults]
   );
+  const options = useEndpoint<FilterOptions>("/api/filters/options", filters, {
+    ttl: 60_000
+  });
 
   const rangePreset = useMemo(
     () => inferPreset(filters.from, filters.to),
@@ -82,30 +92,18 @@ const GlobalFiltersBar = () => {
   );
   const [fromInput, setFromInput] = useState(formatDateInput(filters.from));
   const [toInput, setToInput] = useState(formatDateInput(filters.to));
-  const [modelsInput, setModelsInput] = useState(filters.models.join(", "));
-  const [dirsInput, setDirsInput] = useState(filters.dirs.join(", "));
-  const [sourceInput, setSourceInput] = useState(filters.source.join(", "));
   const [topNInput, setTopNInput] = useState(String(filters.topN));
 
   useEffect(() => {
     setFromInput(formatDateInput(filters.from));
     setToInput(formatDateInput(filters.to));
-    setModelsInput(filters.models.join(", "));
-    setDirsInput(filters.dirs.join(", "));
-    setSourceInput(filters.source.join(", "));
     setTopNInput(String(filters.topN));
   }, [
     filters.from,
     filters.to,
-    filters.models,
-    filters.dirs,
-    filters.source,
     filters.topN
   ]);
 
-  const debouncedModels = useDebouncedValue(modelsInput, 250);
-  const debouncedDirs = useDebouncedValue(dirsInput, 250);
-  const debouncedSource = useDebouncedValue(sourceInput, 250);
   const debouncedTopN = useDebouncedValue(topNInput, 250);
 
   const replaceParams = useCallback(
@@ -133,33 +131,6 @@ const GlobalFiltersBar = () => {
     },
     [searchParams, replaceParams]
   );
-
-  useEffect(() => {
-    updateParams({
-      models: debouncedModels
-        .split(",")
-        .map((entry) => entry.trim())
-        .filter(Boolean)
-    });
-  }, [debouncedModels, updateParams]);
-
-  useEffect(() => {
-    updateParams({
-      dirs: debouncedDirs
-        .split(",")
-        .map((entry) => entry.trim())
-        .filter(Boolean)
-    });
-  }, [debouncedDirs, updateParams]);
-
-  useEffect(() => {
-    updateParams({
-      source: debouncedSource
-        .split(",")
-        .map((entry) => entry.trim())
-        .filter(Boolean)
-    });
-  }, [debouncedSource, updateParams]);
 
   useEffect(() => {
     const numeric = Number(debouncedTopN);
@@ -228,32 +199,32 @@ const GlobalFiltersBar = () => {
 
       <div className="flex flex-col gap-1">
         <Label htmlFor="models">Models</Label>
-        <Input
-          id="models"
+        <TagInput
+          value={filters.models}
+          onChange={(next) => updateParams({ models: next })}
+          options={options.data?.models ?? []}
           placeholder="gpt-5.2-codex, gpt-5.1"
-          value={modelsInput}
-          onChange={(event) => setModelsInput(event.target.value)}
         />
       </div>
 
       <div className="flex flex-col gap-1">
         <Label htmlFor="dirs">Directories</Label>
-        <Input
-          id="dirs"
+        <TagInput
+          value={filters.dirs}
+          onChange={(next) => updateParams({ dirs: next })}
+          options={options.data?.directories ?? []}
           placeholder="/apps, /services"
-          value={dirsInput}
-          onChange={(event) => setDirsInput(event.target.value)}
         />
       </div>
 
       {hasMultipleSources ? (
         <div className="flex flex-col gap-1">
           <Label htmlFor="source">Source</Label>
-          <Input
-            id="source"
+          <TagInput
+            value={filters.source}
+            onChange={(next) => updateParams({ source: next })}
+            options={options.data?.sources ?? []}
             placeholder="cli, app-server"
-            value={sourceInput}
-            onChange={(event) => setSourceInput(event.target.value)}
           />
         </div>
       ) : null}

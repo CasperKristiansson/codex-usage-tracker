@@ -13,7 +13,9 @@ test("sidebar navigation works", async ({ page }) => {
   await page.getByRole("link", { name: "Hotspots" }).click();
   await expect(page.getByText("Model x Directory")).toBeVisible();
   await page.getByRole("link", { name: "Sessions" }).click();
-  await expect(page.getByText("Sessions")).toBeVisible();
+  await expect(
+    page.getByText("Anomaly filters, saved views, and drilldowns")
+  ).toBeVisible();
 });
 
 test("keyboard shortcuts", async ({ page }) => {

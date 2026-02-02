@@ -24,7 +24,7 @@ export const GET = (request: NextRequest) => {
       return errorResponse("turn_index must be a number", 400);
     }
 
-    const db = getDb();
+    const db = getDb(request.nextUrl.searchParams);
     const base = buildWhere(filters, {
       timeColumn: "captured_at_utc",
       sourceColumn: "source"

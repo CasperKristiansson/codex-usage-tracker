@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Maximize2, X } from "lucide-react";
 
 import { ExportMenu } from "@/components/state/export-menu";
@@ -16,6 +16,7 @@ export type PanelExpandModalProps = {
   onClose: () => void;
   exportData?: unknown;
   exportFileBase?: string;
+  queryParams?: string;
   className?: string;
 };
 
@@ -27,8 +28,21 @@ const PanelExpandModal = ({
   onClose,
   exportData,
   exportFileBase,
+  queryParams,
   className
 }: PanelExpandModalProps) => {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    if (!queryParams) return;
+    try {
+      await navigator.clipboard.writeText(queryParams);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setCopied(false);
+    }
+  };
   useEffect(() => {
     if (!open) return;
     const handleKey = (event: KeyboardEvent) => {
@@ -62,6 +76,16 @@ const PanelExpandModal = ({
             ) : null}
           </div>
           <div className="flex items-center gap-2">
+            {queryParams ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleCopy}
+                aria-label="Copy query params"
+              >
+                {copied ? "Copied" : "Copy filters"}
+              </Button>
+            ) : null}
             {exportData ? (
               <ExportMenu data={exportData} title={title} fileBase={exportFileBase} />
             ) : null}

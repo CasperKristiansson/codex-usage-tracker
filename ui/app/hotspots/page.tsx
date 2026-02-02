@@ -22,6 +22,7 @@ import { formatCompactNumber } from "@/lib/format";
 import { useApi } from "@/lib/hooks/use-api";
 import { useEndpoint } from "@/lib/hooks/use-endpoint";
 import { useFilters } from "@/lib/hooks/use-filters";
+import { useSettings } from "@/lib/hooks/use-settings";
 import { asRoute } from "@/lib/utils";
 
 export type TopSessions = {
@@ -76,6 +77,15 @@ export default function HotspotsPage() {
     return `/api/hotspots/tokens_per_turn_distribution?${params.toString()}`;
   }, [filters, overlayEnabled, overlayModel]);
 
+  const { settings } = useSettings();
+  const filterQuery = useMemo(() => {
+    const params = new URLSearchParams(buildFilterQuery(filters));
+    if (settings.dbPath?.trim()) {
+      params.set("db", settings.dbPath.trim());
+    }
+    return params.toString();
+  }, [filters, settings.dbPath]);
+
   const overlayDistribution = useApi<TokenDistribution>(overlayKey, {
     disabled: !overlayEnabled
   });
@@ -118,6 +128,7 @@ export default function HotspotsPage() {
         className="min-h-[260px]"
         exportData={matrix.data}
         exportFileBase="hotspots-model-dir"
+        queryParams={filterQuery}
         expandable
       >
         {renderPanelState(
@@ -136,6 +147,7 @@ export default function HotspotsPage() {
           subtitle="Distribution histogram"
           exportData={distribution.data}
           exportFileBase="hotspots-token-distribution"
+          queryParams={filterQuery}
           expandable
           actions={
             matrixModels.length ? (
@@ -181,6 +193,7 @@ export default function HotspotsPage() {
           subtitle="Sessions with highest usage"
           exportData={topSessions.data}
           exportFileBase="hotspots-top-sessions"
+          queryParams={filterQuery}
           expandable
         >
           {renderPanelState(

@@ -1,5 +1,6 @@
 import argparse
 import os
+import subprocess
 import sys
 import threading
 import time
@@ -37,7 +38,6 @@ from .store import (
     UsageEvent,
     UsageStore,
 )
-from importlib import resources
 
 
 @dataclass
@@ -689,18 +689,11 @@ def build_parser() -> argparse.ArgumentParser:
     status_parser.add_argument("--db", type=Path, default=None)
     status_parser.add_argument("--rollouts", type=Path, default=None)
 
-    web_parser = subparsers.add_parser("web", help="Launch the Streamlit dashboard")
-    web_parser.add_argument("--db", type=Path, default=None)
-    web_parser.add_argument("--rollouts", type=Path, default=None)
-    web_parser.add_argument("--last", type=str, default=None)
-    web_parser.add_argument(
-        "--today",
-        action="store_true",
-        help="Use today's usage (midnight to now, local timezone)",
-    )
-    web_parser.add_argument("--from", dest="from_date", type=str, default=None)
-    web_parser.add_argument("--to", dest="to_date", type=str, default=None)
-    web_parser.add_argument("--port", type=int, default=None)
+    ui_parser = subparsers.add_parser("ui", help="Launch the Next.js dashboard")
+    ui_parser.add_argument("--db", type=Path, default=None)
+    ui_parser.add_argument("--rollouts", type=Path, default=None)
+    ui_parser.add_argument("--port", type=int, default=None)
+    ui_parser.add_argument("--no-open", action="store_true")
 
     ingest_cli_parser = subparsers.add_parser(
         "ingest-cli",
@@ -846,41 +839,26 @@ def main() -> None:
         )
         return
 
-    if args.command == "web":
+    if args.command == "ui":
         if args.db:
             os.environ["CODEX_USAGE_DB"] = str(args.db)
         if args.rollouts:
             os.environ["CODEX_USAGE_ROLLOUTS"] = str(args.rollouts)
-        if args.today:
-            if args.last or args.from_date or args.to_date:
-                parser.error("--today cannot be combined with --last/--from/--to")
-            now = datetime.now(STOCKHOLM_TZ)
-            start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-            os.environ["CODEX_USAGE_FROM"] = start.isoformat()
-            os.environ["CODEX_USAGE_TO"] = now.isoformat()
-        else:
-            if args.last:
-                os.environ["CODEX_USAGE_LAST"] = str(args.last)
-            if args.from_date:
-                os.environ["CODEX_USAGE_FROM"] = str(args.from_date)
-            if args.to_date:
-                os.environ["CODEX_USAGE_TO"] = str(args.to_date)
         store.close()
-        try:
-            from streamlit.web import cli as stcli
-        except Exception as exc:
-            raise RuntimeError(
-                "Streamlit is required for the web dashboard. Install with: pip install streamlit"
-            ) from exc
-
-        app_path = resources.files("codex_usage_tracker") / "web_app.py"
-        argv = ["streamlit", "run", str(app_path), "--server.headless", "true"]
-        if args.port:
-            argv += ["--server.port", str(args.port)]
-        port = args.port or 8501
-        _open_browser(f"http://localhost:{port}")
-        sys.argv = argv
-        sys.exit(stcli.main())
+        port = args.port or 3000
+        if not args.no_open:
+            _open_browser(f"http://localhost:{port}")
+        ui_root = Path(__file__).resolve().parents[2] / "ui"
+        if not ui_root.exists():
+            raise RuntimeError(f\"UI directory not found at {ui_root}\")
+        env = os.environ.copy()
+        env[\"PORT\"] = str(port)
+        result = subprocess.run(
+            [\"pnpm\", \"--dir\", str(ui_root), \"dev\", \"--port\", str(port)],
+            env=env,
+            check=False,
+        )
+        sys.exit(result.returncode)
 
 
 if __name__ == "__main__":

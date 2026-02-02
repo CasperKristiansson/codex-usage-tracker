@@ -1,12 +1,14 @@
+import { NextRequest } from "next/server";
+
 import { getDb } from "@/lib/server/db";
 import { errorResponse, jsonResponse } from "@/lib/server/response";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export const GET = () => {
+export const GET = (request: NextRequest) => {
   try {
-    const db = getDb();
+    const db = getDb(request.nextUrl.searchParams);
     const eventsCount = db
       .prepare("SELECT COUNT(*) as count FROM events")
       .get() as { count: number };

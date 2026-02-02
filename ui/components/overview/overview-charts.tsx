@@ -26,7 +26,7 @@ import {
   safeNumber,
   uniqueBuckets
 } from "@/lib/charts";
-import { formatCompactNumber, formatPercent } from "@/lib/format";
+import { formatCompactNumber, formatCurrency, formatPercent } from "@/lib/format";
 
 export type VolumeMetric = "total_tokens" | "turns" | "sessions";
 export type TokenMixMode = "absolute" | "percent";
@@ -49,6 +49,15 @@ export type TokenMixTimeseries = {
     cached_input_tokens?: number;
     output_tokens?: number;
     reasoning_tokens?: number;
+  }>;
+};
+
+export type CostTimeseries = {
+  bucket: "hour" | "day";
+  rows: Array<{
+    bucket: string;
+    estimated_cost: number;
+    cost_coverage?: number | null;
   }>;
 };
 
@@ -88,6 +97,7 @@ export type RateLimitHeadroom = {
 
 export type ToolsComposition = {
   rows: Array<{ tool_type: string; count: number }>;
+  other?: { tool_type: string; count: number } | null;
 };
 
 export type FrictionEvents = {
@@ -218,13 +228,88 @@ export const VolumeChart = ({
   );
 };
 
+export const CostChart = ({ data }: { data: CostTimeseries }) => {
+  const chartData = useMemo(
+    () =>
+      data.rows.map((row) => ({
+        bucket: row.bucket,
+        estimated_cost: safeNumber(row.estimated_cost),
+        cost_coverage: row.cost_coverage ?? null
+      })),
+    [data.rows]
+  );
+
+  return (
+    <div className="h-60 w-full">
+      <ResponsiveContainer>
+        <AreaChart data={chartData} margin={{ left: 8, right: 16, top: 8 }}>
+          <defs>
+            <linearGradient id="costFill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor="#22D3EE" stopOpacity={0.45} />
+              <stop offset="95%" stopColor="#22D3EE" stopOpacity={0.05} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid stroke="hsl(var(--border) / 0.2)" vertical={false} />
+          <XAxis
+            dataKey="bucket"
+            tickFormatter={(value) => formatBucketLabel(String(value), data.bucket)}
+            tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
+            axisLine={false}
+            tickLine={false}
+          />
+          <YAxis
+            tickFormatter={(value) => formatCurrency(Number(value), true)}
+            tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
+            axisLine={false}
+            tickLine={false}
+            width={64}
+          />
+          <Tooltip
+            {...TOOLTIP_STYLE}
+            content={
+              <ChartTooltip
+                labelFormatter={(value) => formatBucketLabel(String(value), data.bucket)}
+                valueFormatter={(value) => formatCurrency(Number(value))}
+              />
+            }
+          />
+          <Area
+            type="monotone"
+            dataKey="estimated_cost"
+            name="Estimated cost"
+            stroke="#22D3EE"
+            fill="url(#costFill)"
+            strokeWidth={2}
+          />
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
+  );
+};
+
 export const TokenMixChart = ({
   data,
-  mode
+  mode,
+  visibleKeys
 }: {
   data: TokenMixTimeseries;
   mode: TokenMixMode;
+  visibleKeys?: Array<
+    "input_tokens" | "cached_input_tokens" | "output_tokens" | "reasoning_tokens"
+  >;
 }) => {
+  const visible = useMemo(
+    () =>
+      new Set(
+        visibleKeys ?? [
+          "input_tokens",
+          "cached_input_tokens",
+          "output_tokens",
+          "reasoning_tokens"
+        ]
+      ),
+    [visibleKeys]
+  );
   const chartData = useMemo(() => {
     return data.rows.map((row) => {
       const input = safeNumber(row.input_tokens);
@@ -267,11 +352,27 @@ export const TokenMixChart = ({
     <div className="space-y-3">
       <LegendInline
         items={[
-          { label: "Input", color: TOKEN_MIX_COLORS.input_tokens },
-          { label: "Cached", color: TOKEN_MIX_COLORS.cached_input_tokens },
-          { label: "Output", color: TOKEN_MIX_COLORS.output_tokens },
-          { label: "Reasoning", color: TOKEN_MIX_COLORS.reasoning_tokens }
-        ]}
+          {
+            label: "Input",
+            color: TOKEN_MIX_COLORS.input_tokens,
+            hidden: !visible.has("input_tokens")
+          },
+          {
+            label: "Cached",
+            color: TOKEN_MIX_COLORS.cached_input_tokens,
+            hidden: !visible.has("cached_input_tokens")
+          },
+          {
+            label: "Output",
+            color: TOKEN_MIX_COLORS.output_tokens,
+            hidden: !visible.has("output_tokens")
+          },
+          {
+            label: "Reasoning",
+            color: TOKEN_MIX_COLORS.reasoning_tokens,
+            hidden: !visible.has("reasoning_tokens")
+          }
+        ].filter((item) => !item.hidden)}
       />
       <div className="h-60 w-full">
         <ResponsiveContainer>
@@ -318,26 +419,32 @@ export const TokenMixChart = ({
                       </div>
                       {[
                         {
-                          key: "Input",
+                          key: "input_tokens",
+                          label: "Input",
                           color: TOKEN_MIX_COLORS.input_tokens,
                           value: row.raw_input
                         },
                         {
-                          key: "Cached",
+                          key: "cached_input_tokens",
+                          label: "Cached",
                           color: TOKEN_MIX_COLORS.cached_input_tokens,
                           value: row.raw_cached
                         },
                         {
-                          key: "Output",
+                          key: "output_tokens",
+                          label: "Output",
                           color: TOKEN_MIX_COLORS.output_tokens,
                           value: row.raw_output
                         },
                         {
-                          key: "Reasoning",
+                          key: "reasoning_tokens",
+                          label: "Reasoning",
                           color: TOKEN_MIX_COLORS.reasoning_tokens,
                           value: row.raw_reasoning
                         }
-                      ].map((entry) => (
+                      ]
+                        .filter((entry) => visible.has(entry.key as typeof entry.key))
+                        .map((entry) => (
                         <div
                           key={entry.key}
                           className="flex items-center justify-between gap-4"
@@ -347,7 +454,7 @@ export const TokenMixChart = ({
                               className="h-2 w-2 rounded-full"
                               style={{ background: entry.color }}
                             />
-                            {entry.key}
+                            {entry.label}
                           </span>
                           <span className="font-mono text-foreground">
                             {formatCompactNumber(entry.value)}
@@ -365,46 +472,54 @@ export const TokenMixChart = ({
                 );
               }}
             />
-            <Area
-              type="monotone"
-              dataKey="input_tokens"
-              name="Input"
-              stackId="mix"
-              stroke={TOKEN_MIX_COLORS.input_tokens}
-              fill={TOKEN_MIX_COLORS.input_tokens}
-              strokeWidth={2}
-              fillOpacity={0.5}
-            />
-            <Area
-              type="monotone"
-              dataKey="cached_input_tokens"
-              name="Cached"
-              stackId="mix"
-              stroke={TOKEN_MIX_COLORS.cached_input_tokens}
-              fill={TOKEN_MIX_COLORS.cached_input_tokens}
-              strokeWidth={2}
-              fillOpacity={0.5}
-            />
-            <Area
-              type="monotone"
-              dataKey="output_tokens"
-              name="Output"
-              stackId="mix"
-              stroke={TOKEN_MIX_COLORS.output_tokens}
-              fill={TOKEN_MIX_COLORS.output_tokens}
-              strokeWidth={2}
-              fillOpacity={0.5}
-            />
-            <Area
-              type="monotone"
-              dataKey="reasoning_tokens"
-              name="Reasoning"
-              stackId="mix"
-              stroke={TOKEN_MIX_COLORS.reasoning_tokens}
-              fill={TOKEN_MIX_COLORS.reasoning_tokens}
-              strokeWidth={2}
-              fillOpacity={0.5}
-            />
+            {visible.has("input_tokens") ? (
+              <Area
+                type="monotone"
+                dataKey="input_tokens"
+                name="Input"
+                stackId="mix"
+                stroke={TOKEN_MIX_COLORS.input_tokens}
+                fill={TOKEN_MIX_COLORS.input_tokens}
+                strokeWidth={2}
+                fillOpacity={0.5}
+              />
+            ) : null}
+            {visible.has("cached_input_tokens") ? (
+              <Area
+                type="monotone"
+                dataKey="cached_input_tokens"
+                name="Cached"
+                stackId="mix"
+                stroke={TOKEN_MIX_COLORS.cached_input_tokens}
+                fill={TOKEN_MIX_COLORS.cached_input_tokens}
+                strokeWidth={2}
+                fillOpacity={0.5}
+              />
+            ) : null}
+            {visible.has("output_tokens") ? (
+              <Area
+                type="monotone"
+                dataKey="output_tokens"
+                name="Output"
+                stackId="mix"
+                stroke={TOKEN_MIX_COLORS.output_tokens}
+                fill={TOKEN_MIX_COLORS.output_tokens}
+                strokeWidth={2}
+                fillOpacity={0.5}
+              />
+            ) : null}
+            {visible.has("reasoning_tokens") ? (
+              <Area
+                type="monotone"
+                dataKey="reasoning_tokens"
+                name="Reasoning"
+                stackId="mix"
+                stroke={TOKEN_MIX_COLORS.reasoning_tokens}
+                fill={TOKEN_MIX_COLORS.reasoning_tokens}
+                strokeWidth={2}
+                fillOpacity={0.5}
+              />
+            ) : null}
           </AreaChart>
         </ResponsiveContainer>
       </div>
@@ -414,16 +529,23 @@ export const TokenMixChart = ({
 
 export const ModelShareChart = ({
   data,
-  onSelectModel
+  onSelectModel,
+  visibleKeys
 }: {
   data: ModelShareTimeseries;
   onSelectModel?: (model: string, shiftKey: boolean) => void;
+  visibleKeys?: string[];
 }) => {
   const { rows, keys, totals } = useMemo(() => {
     const series =
       data.series && !Array.isArray(data.series) ? data.series : {};
     return buildStackedSeries(series);
   }, [data.series]);
+
+  const activeKeys = useMemo(
+    () => (visibleKeys?.length ? keys.filter((key) => visibleKeys.includes(key)) : keys),
+    [keys, visibleKeys]
+  );
 
   const totalAll = useMemo(() => {
     let sum = 0;
@@ -435,13 +557,13 @@ export const ModelShareChart = ({
 
   const colors = useMemo(() => {
     const map = new Map<string, string>();
-    keys.forEach((key, index) => {
+    activeKeys.forEach((key, index) => {
       map.set(key, SERIES_COLORS[index % SERIES_COLORS.length]);
     });
     return map;
-  }, [keys]);
+  }, [activeKeys]);
 
-  const legendItems = keys.slice(0, 6).map((key) => ({
+  const legendItems = activeKeys.slice(0, 6).map((key) => ({
     label: key,
     color: colors.get(key) ?? SERIES_COLORS[0],
     value: totalAll
@@ -481,7 +603,7 @@ export const ModelShareChart = ({
                 />
               }
             />
-            {keys.map((key) => (
+            {activeKeys.map((key) => (
               <Bar
                 key={key}
                 dataKey={key}
@@ -696,7 +818,20 @@ export const ContextPressureChart = ({
   );
 };
 
-export const RateLimitChart = ({ data }: { data: RateLimitHeadroom }) => {
+export const RateLimitChart = ({
+  data,
+  visibleKeys
+}: {
+  data: RateLimitHeadroom;
+  visibleKeys?: Array<"min_5h_left" | "min_weekly_left">;
+}) => {
+  const visible = useMemo(
+    () =>
+      new Set(
+        visibleKeys ?? ["min_5h_left", "min_weekly_left"]
+      ),
+    [visibleKeys]
+  );
   const chartData = useMemo(
     () =>
       data.rows.map((row) => ({
@@ -756,22 +891,26 @@ export const RateLimitChart = ({ data }: { data: RateLimitHeadroom }) => {
               />
             }
           />
-          <Line
-            type="monotone"
-            dataKey="min_5h_left"
-            name="Min 5h left"
-            stroke="#22D3EE"
-            strokeWidth={2}
-            dot={false}
-          />
-          <Line
-            type="monotone"
-            dataKey="min_weekly_left"
-            name="Min weekly left"
-            stroke="#A78BFA"
-            strokeWidth={2}
-            dot={false}
-          />
+          {visible.has("min_5h_left") ? (
+            <Line
+              type="monotone"
+              dataKey="min_5h_left"
+              name="Min 5h left"
+              stroke="#22D3EE"
+              strokeWidth={2}
+              dot={false}
+            />
+          ) : null}
+          {visible.has("min_weekly_left") ? (
+            <Line
+              type="monotone"
+              dataKey="min_weekly_left"
+              name="Min weekly left"
+              stroke="#A78BFA"
+              strokeWidth={2}
+              dot={false}
+            />
+          ) : null}
         </LineChart>
       </ResponsiveContainer>
     </div>
@@ -787,10 +926,23 @@ const frictionLabels: Record<string, string> = {
   exited_review_mode: "Review out"
 };
 
-export const FrictionEventsChart = ({ data }: { data: FrictionEvents }) => {
+export const FrictionEventsChart = ({
+  data,
+  visibleKeys
+}: {
+  data: FrictionEvents;
+  visibleKeys?: string[];
+}) => {
   const eventTypes = useMemo(
     () => Object.keys(frictionLabels),
     []
+  );
+  const activeKeys = useMemo(
+    () =>
+      visibleKeys?.length
+        ? eventTypes.filter((event) => visibleKeys.includes(event))
+        : eventTypes,
+    [eventTypes, visibleKeys]
   );
 
   const chartData = useMemo(() => {
@@ -799,7 +951,7 @@ export const FrictionEventsChart = ({ data }: { data: FrictionEvents }) => {
     );
     const rows = buckets.map((bucket) => {
       const row: Record<string, number | string> = { bucket };
-      eventTypes.forEach((event) => {
+      activeKeys.forEach((event) => {
         row[event] = 0;
       });
       return row;
@@ -815,9 +967,9 @@ export const FrictionEventsChart = ({ data }: { data: FrictionEvents }) => {
     });
 
     return rows;
-  }, [data.rows, eventTypes]);
+  }, [data.rows, activeKeys]);
 
-  const legendItems = eventTypes.map((event, index) => ({
+  const legendItems = activeKeys.map((event, index) => ({
     label: frictionLabels[event],
     color: SERIES_COLORS[index % SERIES_COLORS.length]
   }));
@@ -854,7 +1006,7 @@ export const FrictionEventsChart = ({ data }: { data: FrictionEvents }) => {
                 />
               }
             />
-            {eventTypes.map((event, index) => (
+            {activeKeys.map((event, index) => (
               <Bar
                 key={event}
                 dataKey={event}
@@ -876,12 +1028,15 @@ export const ToolsCompositionChart = ({
   data: ToolsComposition;
 }) => {
   const chartData = useMemo(
-    () =>
-      data.rows.map((row) => ({
+    () => {
+      const rows = [...data.rows];
+      if (data.other) rows.push(data.other);
+      return rows.map((row) => ({
         tool_type: row.tool_type,
         count: safeNumber(row.count)
-      })),
-    [data.rows]
+      }));
+    },
+    [data.other, data.rows]
   );
 
   return (

@@ -6,6 +6,7 @@ import type { Filters } from "@/lib/filters";
 import { useEndpoint } from "@/lib/hooks/use-endpoint";
 import { useApi } from "@/lib/hooks/use-api";
 import { usePolling } from "@/lib/hooks/use-polling";
+import { useSettings } from "@/lib/hooks/use-settings";
 
 export type SyncStatus = {
   last_ingested_at?: string;
@@ -31,6 +32,7 @@ export const useSync = (filters: Filters) => {
   const status = useEndpoint<SyncStatus>("/api/sync/status", filters, {
     ttl: 10_000
   });
+  const { settings } = useSettings();
   const [syncId, setSyncId] = useState<string | null>(null);
   const progressKey = useMemo(
     () => (syncId ? `/api/sync/progress?sync_id=${syncId}` : null),
@@ -47,7 +49,12 @@ export const useSync = (filters: Filters) => {
     setIsStarting(true);
     setStartError(null);
     try {
-      const response = await fetch("/api/sync/start", {
+      const params = new URLSearchParams();
+      if (settings.dbPath?.trim()) {
+        params.set("db", settings.dbPath.trim());
+      }
+      const url = params.toString() ? `/api/sync/start?${params.toString()}` : "/api/sync/start";
+      const response = await fetch(url, {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
@@ -70,7 +77,7 @@ export const useSync = (filters: Filters) => {
     } finally {
       setIsStarting(false);
     }
-  }, [filters.from, filters.to, progress, status]);
+  }, [filters.from, filters.to, progress, status, settings.dbPath]);
 
   const isRunning = progress.data?.status === "running";
 

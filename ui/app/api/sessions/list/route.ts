@@ -15,7 +15,7 @@ const clamp = (value: number, min: number, max: number) =>
 export const GET = (request: NextRequest) => {
   try {
     const filters = parseFilters(request.nextUrl.searchParams);
-    const db = getDb();
+    const db = getDb(request.nextUrl.searchParams);
 
     const pageRaw = Number(request.nextUrl.searchParams.get("page"));
     const sizeRaw = Number(request.nextUrl.searchParams.get("pageSize"));

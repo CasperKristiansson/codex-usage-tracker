@@ -35,7 +35,7 @@ const resolveTopModels = (
 export const GET = (request: NextRequest) => {
   try {
     const filters = parseFilters(request.nextUrl.searchParams);
-    const db = getDb();
+    const db = getDb(request.nextUrl.searchParams);
     const bucketExpr = bucketExpression(filters.resolvedBucket);
     const base = buildWhere(filters, {
       timeColumn: "captured_at_utc",

@@ -4,6 +4,7 @@ import { getDb } from "@/lib/server/db";
 import { parseFilters } from "@/lib/server/filters";
 import { applyEventType, buildToolJoin, buildWhere } from "@/lib/server/query";
 import { errorResponse, jsonResponse } from "@/lib/server/response";
+import { DEFAULT_PRICING, estimateCost } from "@/lib/pricing";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,7 +15,7 @@ const errorCase =
 export const GET = (request: NextRequest) => {
   try {
     const filters = parseFilters(request.nextUrl.searchParams);
-    const db = getDb();
+    const db = getDb(request.nextUrl.searchParams);
 
     const base = buildWhere(filters, {
       timeColumn: "captured_at_utc",
@@ -55,12 +56,42 @@ export const GET = (request: NextRequest) => {
       )
       .get(tool.params) as { total: number; errors: number };
 
+    const costRows = db
+      .prepare(
+        `SELECT model,
+          SUM(input_tokens) as input_tokens,
+          SUM(cached_input_tokens) as cached_input_tokens,
+          SUM(output_tokens) as output_tokens,
+          SUM(total_tokens) as total_tokens
+        FROM events
+        ${eventsWhere.sql}
+        GROUP BY model`
+      )
+      .all(eventsWhere.params) as Array<{
+      model: string | null;
+      input_tokens: number | null;
+      cached_input_tokens: number | null;
+      output_tokens: number | null;
+      total_tokens: number | null;
+    }>;
+
+    let estimatedCost = 0;
+    let pricedTokens = 0;
+    costRows.forEach((row) => {
+      const cost = estimateCost(row, DEFAULT_PRICING);
+      if (cost === null) return;
+      estimatedCost += cost;
+      pricedTokens += row.total_tokens ?? 0;
+    });
+
     const cacheShare = tokenRow?.input_total
       ? ((tokenRow.cached_input_tokens ?? 0) / tokenRow.input_total) * 100
       : null;
     const errorRate = toolRow?.total
       ? (toolRow.errors / toolRow.total) * 100
       : null;
+    const totalTokens = tokenRow?.total_tokens ?? 0;
+    const costCoverage = totalTokens ? (pricedTokens / totalTokens) * 100 : null;
 
     return jsonResponse({
       total_tokens: tokenRow.total_tokens ?? 0,
@@ -70,7 +101,9 @@ export const GET = (request: NextRequest) => {
       cached_input_tokens: tokenRow.cached_input_tokens ?? 0,
       cache_share: cacheShare,
       tool_calls: toolRow.total ?? 0,
-      tool_error_rate: errorRate
+      tool_error_rate: errorRate,
+      estimated_cost: estimatedCost,
+      cost_coverage: costCoverage
     });
   } catch (error) {
     return errorResponse(

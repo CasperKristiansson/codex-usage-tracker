@@ -24,3 +24,16 @@ export const formatDuration = (value: number | null | undefined) => {
   if (ms < 3_600_000) return `${(ms / 60_000).toFixed(1)}m`;
   return `${(ms / 3_600_000).toFixed(1)}h`;
 };
+
+export const formatCurrency = (
+  value: number | null | undefined,
+  compact = false
+) => {
+  if (value === null || value === undefined || Number.isNaN(value)) return "—";
+  return new Intl.NumberFormat("en", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 2,
+    notation: compact ? "compact" : "standard"
+  }).format(value);
+};

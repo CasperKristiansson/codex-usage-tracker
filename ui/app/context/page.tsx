@@ -19,9 +19,11 @@ import { EmptyState } from "@/components/state/empty-state";
 import { ErrorState } from "@/components/state/error-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import { isEmptyResponse } from "@/lib/data";
+import { buildFilterQuery } from "@/lib/api";
 import { safeNumber } from "@/lib/charts";
 import { useEndpoint } from "@/lib/hooks/use-endpoint";
 import { useFilters } from "@/lib/hooks/use-filters";
+import { useSettings } from "@/lib/hooks/use-settings";
 
 export default function ContextPage() {
   const { filters } = useFilters();
@@ -43,6 +45,14 @@ export default function ContextPage() {
     filters,
     { ttl: 30_000 }
   );
+  const { settings } = useSettings();
+  const filterQuery = useMemo(() => {
+    const params = new URLSearchParams(buildFilterQuery(filters));
+    if (settings.dbPath?.trim()) {
+      params.set("db", settings.dbPath.trim());
+    }
+    return params.toString();
+  }, [filters, settings.dbPath]);
 
   const volumeRows = volume.data?.rows ?? null;
   const totalTurns = useMemo(() => {
@@ -78,6 +88,7 @@ export default function ContextPage() {
           subtitle="Distribution of context remaining"
           exportData={histogram.data}
           exportFileBase="context-histogram"
+          queryParams={filterQuery}
           expandable
         >
           {renderPanelState(
@@ -91,6 +102,7 @@ export default function ContextPage() {
           subtitle="Percent of usage under 10%"
           exportData={dangerRate.data}
           exportFileBase="context-danger-rate"
+          queryParams={filterQuery}
           expandable
         >
           {renderPanelState(
@@ -106,6 +118,7 @@ export default function ContextPage() {
         subtitle="Mitigation events and normalized rate"
         exportData={compaction.data}
         exportFileBase="context-compaction"
+        queryParams={filterQuery}
         expandable
       >
         {renderPanelState(
@@ -130,6 +143,7 @@ export default function ContextPage() {
         subtitle="Binned density view of context left vs tokens"
         exportData={contextHeatmap.data}
         exportFileBase="context-vs-tokens"
+        queryParams={filterQuery}
         expandable
       >
         {renderPanelState(

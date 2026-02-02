@@ -14,7 +14,7 @@ const errorCase =
 export const GET = (request: NextRequest) => {
   try {
     const filters = parseFilters(request.nextUrl.searchParams);
-    const db = getDb();
+    const db = getDb(request.nextUrl.searchParams);
     const tool = buildToolJoin(filters);
 
     const rows = (

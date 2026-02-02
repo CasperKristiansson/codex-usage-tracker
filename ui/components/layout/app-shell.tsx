@@ -7,6 +7,7 @@ import { FilterCommandPalette } from "@/components/filters/filter-command-palett
 import { KeyboardShortcuts } from "@/components/layout/keyboard-shortcuts";
 import SidebarNav from "@/components/layout/sidebar-nav";
 import TopHeader from "@/components/layout/top-header";
+import { SettingsSync } from "@/components/state/settings-sync";
 
 const STORAGE_KEY = "cut.sidebar.collapsed";
 
@@ -28,6 +29,7 @@ const AppShell = ({ children }: AppShellProps) => {
     <div className="flex min-h-screen">
       <KeyboardShortcuts />
       <FilterCommandPalette />
+      <SettingsSync />
       <SidebarNav
         collapsed={collapsed}
         onToggle={() => setCollapsed((prev) => !prev)}

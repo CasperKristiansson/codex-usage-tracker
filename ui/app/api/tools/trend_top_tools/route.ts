@@ -11,9 +11,9 @@ export const dynamic = "force-dynamic";
 export const GET = (request: NextRequest) => {
   try {
     const filters = parseFilters(request.nextUrl.searchParams);
-    const db = getDb();
+    const db = getDb(request.nextUrl.searchParams);
     const tool = buildToolJoin(filters);
-    const labelExpr = "COALESCE(tc.tool_name, tc.tool_type)";
+    const labelExpr = "COALESCE(tc.tool_name, tc.tool_type, '<unknown>')";
 
     const topRows = db
       .prepare(
@@ -46,9 +46,26 @@ export const GET = (request: NextRequest) => {
       )
       .all([...tool.params, ...tools]) as Array<Record<string, unknown>>;
 
+    const otherRows = db
+      .prepare(
+        `SELECT ${bucketExpr} as bucket, COUNT(*) as count
+        FROM tool_calls tc
+        ${tool.join}
+        ${tool.where}
+        AND ${labelExpr} NOT IN (${tools.map(() => "?").join(",")})
+        GROUP BY bucket
+        ORDER BY bucket ASC`
+      )
+      .all([...tool.params, ...tools]) as Array<{ bucket: string; count: number }>;
+
+    const combinedRows = [
+      ...rows,
+      ...otherRows.map((row) => ({ bucket: row.bucket, tool: "Other", count: row.count }))
+    ];
+
     return jsonResponse({
       bucket: filters.resolvedBucket,
-      rows: limitBuckets(rows)
+      rows: limitBuckets(combinedRows)
     });
   } catch (error) {
     return errorResponse(

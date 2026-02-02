@@ -9,7 +9,7 @@ version = "0.1.0"
 description = "Local token usage tracker for OpenAI Codex CLI"
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = ["altair>=5.0", "pandas>=2.0", "streamlit>=1.32"]
+dependencies = []
 
 [project.scripts]
 codex-track = "codex_usage_tracker.cli:main"

@@ -20,7 +20,7 @@ export const GET = (request: NextRequest) => {
       return errorResponse("session_id or <=24h range required", 400);
     }
 
-    const db = getDb();
+    const db = getDb(request.nextUrl.searchParams);
     const tool = buildToolJoin(filters);
     const params = [...tool.params];
     let whereSql = tool.where;

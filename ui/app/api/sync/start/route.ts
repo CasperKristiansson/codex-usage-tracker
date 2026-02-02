@@ -10,6 +10,7 @@ export const dynamic = "force-dynamic";
 export const POST = async (request: NextRequest) => {
   try {
     const filters = parseFilters(request.nextUrl.searchParams);
+    const dbPath = request.nextUrl.searchParams.get("db");
     const body = await request.json().catch(() => null);
     if (body?.from) {
       const parsed = new Date(body.from);
@@ -24,7 +25,7 @@ export const POST = async (request: NextRequest) => {
       }
     }
 
-    const syncId = startSync(filters);
+    const syncId = startSync(filters, dbPath);
     return jsonResponse({ sync_id: syncId });
   } catch (error) {
     return errorResponse(

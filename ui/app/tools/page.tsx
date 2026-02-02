@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { BarList } from "@/components/charts/bar-list";
+import { SeriesToggles } from "@/components/charts/series-toggles";
 import {
   LatencyOutliers,
   LatencyTable,
@@ -27,6 +28,7 @@ import { formatCompactNumber, formatPercent } from "@/lib/format";
 import { useApi } from "@/lib/hooks/use-api";
 import { useEndpoint } from "@/lib/hooks/use-endpoint";
 import { useFilters } from "@/lib/hooks/use-filters";
+import { useSettings } from "@/lib/hooks/use-settings";
 
 const formatTimestamp = (value: string) => {
   const date = new Date(value);
@@ -58,6 +60,30 @@ export default function ToolsPage() {
 
   const [selectedType, setSelectedType] = useState<string | null>(null);
   const [drawerTool, setDrawerTool] = useState<string | null>(null);
+  const [trendVisible, setTrendVisible] = useState<string[]>([]);
+
+  const trendKeys = useMemo(() => {
+    const rows = trend.data?.rows ?? [];
+    return Array.from(new Set(rows.map((row) => row.tool)));
+  }, [trend.data?.rows]);
+
+  useEffect(() => {
+    if (!trendKeys.length) return;
+    setTrendVisible((prev) => {
+      const next = prev.filter((key) => trendKeys.includes(key));
+      return next.length ? next : trendKeys;
+    });
+  }, [trendKeys]);
+
+  const trendToggleItems = useMemo(
+    () =>
+      trendKeys.map((key, index) => ({
+        key,
+        label: key,
+        color: SERIES_COLORS[index % SERIES_COLORS.length]
+      })),
+    [trendKeys]
+  );
 
   const toolTypes = typeCounts.data?.rows ?? [];
   const fallbackType = toolTypes.find((row) => row.tool_type)?.tool_type ?? null;
@@ -97,6 +123,15 @@ export default function ToolsPage() {
     disabled: !drawerTool || !isSampleAllowed
   });
 
+  const { settings } = useSettings();
+  const filterQuery = useMemo(() => {
+    const params = new URLSearchParams(buildFilterQuery(filters));
+    if (settings.dbPath?.trim()) {
+      params.set("db", settings.dbPath.trim());
+    }
+    return params.toString();
+  }, [filters, settings.dbPath]);
+
   const renderPanelState = <T,>(
     state: {
       data?: T;
@@ -122,6 +157,7 @@ export default function ToolsPage() {
           subtitle="Calls by tool type"
           exportData={typeCounts.data}
           exportFileBase="tools-composition"
+          queryParams={filterQuery}
           expandable
           actions={activeType ? <Badge className="normal-case">{activeType}</Badge> : null}
         >
@@ -129,8 +165,11 @@ export default function ToolsPage() {
             typeCounts,
             "No tool composition data.",
             (data) => {
-              const items = data.rows.map((row, index) => {
+              const rows = [...data.rows, ...(data.other ? [data.other] : [])];
+              const items = rows.map((row, index) => {
                 const label = row.tool_type || "Unknown";
+                const isOther =
+                  row.tool_type === "Other" || row.tool_type === "<unknown>";
                 const color =
                   row.tool_type === activeType
                     ? "hsl(var(--primary))"
@@ -139,7 +178,8 @@ export default function ToolsPage() {
                   label,
                   value: row.count,
                   color,
-                  onClick: row.tool_type ? () => setSelectedType(row.tool_type) : undefined
+                  onClick:
+                    row.tool_type && !isOther ? () => setSelectedType(row.tool_type) : undefined
                 };
               });
 
@@ -157,6 +197,7 @@ export default function ToolsPage() {
           }
           exportData={nameCounts.data}
           exportFileBase="tools-names"
+          queryParams={filterQuery}
           expandable
         >
           {activeType
@@ -164,7 +205,8 @@ export default function ToolsPage() {
                 nameCounts,
                 "No tool name data.",
                 (data) => {
-                  const items = data.rows.map((row, index) => ({
+                  const rows = [...data.rows, ...(data.other ? [data.other] : [])];
+                  const items = rows.map((row, index) => ({
                     label: row.tool_name || "Unknown",
                     value: row.count,
                     color: SERIES_COLORS[index % SERIES_COLORS.length]
@@ -185,7 +227,25 @@ export default function ToolsPage() {
           subtitle="Call volume by tool over time"
           exportData={trend.data}
           exportFileBase="tools-trends"
+          queryParams={filterQuery}
           expandable
+          expandedContent={
+            <div className="space-y-4">
+              {trendToggleItems.length ? (
+                <SeriesToggles
+                  items={trendToggleItems}
+                  activeKeys={trendVisible}
+                  onChange={setTrendVisible}
+                />
+              ) : null}
+              {renderPanelState(
+                trend,
+                "No tool trend data.",
+                (data) => <ToolTrendChart data={data} visibleKeys={trendVisible} />,
+                "h-60 w-full"
+              )}
+            </div>
+          }
         >
           {renderPanelState(
             trend,
@@ -199,6 +259,7 @@ export default function ToolsPage() {
           subtitle="p50/p95 call durations with outliers"
           exportData={latency.data}
           exportFileBase="tools-latency"
+          queryParams={filterQuery}
           expandable
         >
           {renderPanelState(
@@ -220,6 +281,7 @@ export default function ToolsPage() {
         subtitle="Error rate by tool (click for samples)"
         exportData={errorRates.data}
         exportFileBase="tools-failures"
+        queryParams={filterQuery}
         expandable
       >
         {renderPanelState(

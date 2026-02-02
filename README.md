@@ -40,10 +40,11 @@ codex-track status
 
 Launch the web dashboard:
 ```bash
-codex-track web
+codex-track ui
 ```
 
 The dashboard uses built-in pricing for GPT-5.2, gpt-5.1-codex-max, gpt-5.1-codex, and gpt-5.2-codex (per 1M tokens).
+The UI requires Node.js + pnpm in this repo.
 
 Clear the local DB:
 ```bash

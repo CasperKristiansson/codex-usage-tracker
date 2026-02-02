@@ -21,6 +21,7 @@ type CardPanelProps = {
   expandable?: boolean;
   expandedContent?: ReactNode;
   expandedClassName?: string;
+  queryParams?: string;
 };
 
 const CardPanel = ({
@@ -34,7 +35,8 @@ const CardPanel = ({
   exportFileBase,
   expandable = false,
   expandedContent,
-  expandedClassName
+  expandedClassName,
+  queryParams
 }: CardPanelProps) => {
   const [expanded, setExpanded] = useState(false);
 
@@ -65,9 +67,9 @@ const CardPanel = ({
           ) : null}
         </div>
       </div>
-      <div className="flex-1 px-4 py-4">{children}</div>
+      <div className="card-body flex-1">{children}</div>
       {footer ? (
-        <div className="border-t border-border/15 px-4 py-3 text-xs text-muted-foreground">
+        <div className="card-footer border-t border-border/15 text-xs text-muted-foreground">
           {footer}
         </div>
       ) : null}
@@ -79,6 +81,7 @@ const CardPanel = ({
           onClose={() => setExpanded(false)}
           exportData={exportData}
           exportFileBase={exportFileBase}
+          queryParams={queryParams}
           className={expandedClassName}
         >
           {expandedContent ?? children}

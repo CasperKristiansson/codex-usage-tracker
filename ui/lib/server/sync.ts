@@ -30,6 +30,8 @@ type SyncJob = {
 
 type SyncRegistry = Map<string, SyncJob>;
 
+const SYNC_CLEANUP_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
 const getRegistry = (): SyncRegistry => {
   const globalAny = globalThis as typeof globalThis & { __cutSyncJobs?: SyncRegistry };
   if (!globalAny.__cutSyncJobs) {
@@ -43,7 +45,24 @@ const ensureSyncDir = () => {
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
+  cleanupSyncDir(dir);
   return dir;
+};
+
+const cleanupSyncDir = (dir: string) => {
+  try {
+    const now = Date.now();
+    for (const entry of fs.readdirSync(dir)) {
+      if (!entry.endsWith(".json")) continue;
+      const filePath = path.join(dir, entry);
+      const stat = fs.statSync(filePath);
+      if (now - stat.mtimeMs > SYNC_CLEANUP_AGE_MS) {
+        fs.unlinkSync(filePath);
+      }
+    }
+  } catch {
+    // best-effort cleanup
+  }
 };
 
 const writeProgress = (progressPath: string, payload: SyncProgress) => {
@@ -52,16 +71,18 @@ const writeProgress = (progressPath: string, payload: SyncProgress) => {
   fs.renameSync(tmpPath, progressPath);
 };
 
-const syncKey = (filters: NormalizedFilters) => `${filters.from}|${filters.to}`;
+const syncKey = (filters: NormalizedFilters, dbPath?: string | null) =>
+  `${filters.from}|${filters.to}|${dbPath ?? "default"}`;
 
 const createSyncId = (key: string) => {
   const hash = crypto.createHash("sha1").update(key).digest("hex").slice(0, 8);
   return `sync_${Date.now()}_${hash}`;
 };
 
-export const startSync = (filters: NormalizedFilters) => {
+export const startSync = (filters: NormalizedFilters, dbPathOverride?: string | null) => {
   const registry = getRegistry();
-  const key = syncKey(filters);
+  const dbPath = dbPathOverride?.trim() ? dbPathOverride.trim() : resolveDbPath();
+  const key = syncKey(filters, dbPath);
   const existing = registry.get(key);
   if (existing?.running) {
     return existing.syncId;
@@ -77,7 +98,7 @@ export const startSync = (filters: NormalizedFilters) => {
     "-m",
     "codex_usage_tracker.sync_runner",
     "--db",
-    resolveDbPath(),
+    dbPath,
     "--rollouts",
     resolveRolloutsPath(),
     "--from",

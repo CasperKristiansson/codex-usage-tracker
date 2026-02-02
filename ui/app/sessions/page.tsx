@@ -15,6 +15,7 @@ import { isEmptyResponse } from "@/lib/data";
 import { formatCompactNumber } from "@/lib/format";
 import { useApi } from "@/lib/hooks/use-api";
 import { useFilters } from "@/lib/hooks/use-filters";
+import { useSettings } from "@/lib/hooks/use-settings";
 
 export type SessionsList = {
   page: number;
@@ -123,6 +124,14 @@ export default function SessionsPage() {
     minTurns,
     minTokensPerTurn
   ]);
+  const { settings } = useSettings();
+  const filterQuery = useMemo(() => {
+    const params = new URLSearchParams(buildFilterQuery(filters));
+    if (settings.dbPath?.trim()) {
+      params.set("db", settings.dbPath.trim());
+    }
+    return params.toString();
+  }, [filters, settings.dbPath]);
 
   const sessions = useApi<SessionsList>(sessionsKey);
 
@@ -207,6 +216,7 @@ export default function SessionsPage() {
         subtitle="Anomaly filters, saved views, and drilldowns"
         exportData={sessions.data}
         exportFileBase="sessions-list"
+        queryParams={filterQuery}
         expandable
       >
         <div className="space-y-4">

@@ -18,10 +18,12 @@ import { formatCompactNumber, formatDuration } from "@/lib/format";
 
 export type ToolTypeCounts = {
   rows: Array<{ tool_type: string; count: number }>;
+  other?: { tool_type: string; count: number } | null;
 };
 
 export type ToolNameCounts = {
   rows: Array<{ tool_name: string; count: number }>;
+  other?: { tool_name: string; count: number } | null;
 };
 
 export type ToolErrorRates = {
@@ -49,7 +51,11 @@ const buildStackedSeries = (
     total: points.reduce((sum, point) => sum + safeNumber(point.value), 0)
   }));
 
-  const sorted = totals.sort((a, b) => b.total - a.total);
+  const other = totals.find((item) => item.name === "Other");
+  const sorted = totals
+    .filter((item) => item.name !== "Other")
+    .sort((a, b) => b.total - a.total);
+  if (other) sorted.push(other);
   const buckets = uniqueBuckets(
     Object.values(series).flatMap((points) => points)
   );
@@ -79,7 +85,13 @@ const buildStackedSeries = (
   };
 };
 
-export const ToolTrendChart = ({ data }: { data: ToolTrend }) => {
+export const ToolTrendChart = ({
+  data,
+  visibleKeys
+}: {
+  data: ToolTrend;
+  visibleKeys?: string[];
+}) => {
   const { rows, keys, totals } = useMemo(() => {
     const series: Record<string, Array<{ bucket: string; value: number }>> = {};
     data.rows.forEach((row) => {
@@ -89,15 +101,20 @@ export const ToolTrendChart = ({ data }: { data: ToolTrend }) => {
     return buildStackedSeries(series);
   }, [data.rows]);
 
+  const activeKeys = useMemo(
+    () => (visibleKeys?.length ? keys.filter((key) => visibleKeys.includes(key)) : keys),
+    [keys, visibleKeys]
+  );
+
   const colors = useMemo(() => {
     const map = new Map<string, string>();
-    keys.forEach((key, index) => {
+    activeKeys.forEach((key, index) => {
       map.set(key, SERIES_COLORS[index % SERIES_COLORS.length]);
     });
     return map;
-  }, [keys]);
+  }, [activeKeys]);
 
-  const legendItems = keys.slice(0, 6).map((key) => ({
+  const legendItems = activeKeys.slice(0, 6).map((key) => ({
     label: key,
     color: colors.get(key) ?? SERIES_COLORS[0],
     value: formatCompactNumber(totals.get(key))
@@ -132,7 +149,7 @@ export const ToolTrendChart = ({ data }: { data: ToolTrend }) => {
                 />
               }
             />
-            {keys.map((key) => (
+            {activeKeys.map((key) => (
               <Area
                 key={key}
                 type="monotone"
@@ -231,4 +248,3 @@ export const LatencyOutliers = ({ data }: { data: ToolLatency }) => {
     </div>
   );
 };
-

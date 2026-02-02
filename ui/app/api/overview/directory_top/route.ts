@@ -42,7 +42,7 @@ export const GET = (request: NextRequest) => {
   try {
     const filters = parseFilters(request.nextUrl.searchParams);
     const depth = Number(request.nextUrl.searchParams.get("depth") ?? 0);
-    const db = getDb();
+    const db = getDb(request.nextUrl.searchParams);
     const base = buildWhere(filters, {
       timeColumn: "captured_at_utc",
       modelColumn: "model",

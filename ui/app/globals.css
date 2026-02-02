@@ -4,6 +4,12 @@
 
 :root {
   color-scheme: dark;
+  --panel-padding-x: 1rem;
+  --panel-padding-y: 0.75rem;
+  --panel-body-padding-x: 1rem;
+  --panel-body-padding-y: 1rem;
+  --panel-footer-padding-x: 1rem;
+  --panel-footer-padding-y: 0.75rem;
 }
 
 :root,
@@ -68,6 +74,15 @@
   --ring: 188 86% 38%;
 }
 
+.density-compact {
+  --panel-padding-x: 0.75rem;
+  --panel-padding-y: 0.5rem;
+  --panel-body-padding-x: 0.75rem;
+  --panel-body-padding-y: 0.75rem;
+  --panel-footer-padding-x: 0.75rem;
+  --panel-footer-padding-y: 0.5rem;
+}
+
 * {
   @apply border-border;
 }
@@ -89,12 +104,18 @@ body {
     @apply rounded-lg border border-border/20 bg-card text-card-foreground shadow-soft transition-shadow;
   }
   .card-header {
-    @apply flex items-start justify-between gap-3 border-b border-border/15 px-4 py-3;
+    @apply flex items-start justify-between gap-3 border-b border-border/15 px-[var(--panel-padding-x)] py-[var(--panel-padding-y)];
   }
   .card-title {
     @apply text-sm font-semibold text-foreground;
   }
   .card-subtitle {
     @apply text-xs text-muted-foreground;
+  }
+  .card-body {
+    @apply px-[var(--panel-body-padding-x)] py-[var(--panel-body-padding-y)];
+  }
+  .card-footer {
+    @apply px-[var(--panel-footer-padding-x)] py-[var(--panel-footer-padding-y)];
   }
 }

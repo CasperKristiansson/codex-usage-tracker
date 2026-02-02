@@ -16,24 +16,48 @@ export const GET = (request: NextRequest) => {
     }
 
     const filters = parseFilters(request.nextUrl.searchParams);
-    const db = getDb();
+    const db = getDb(request.nextUrl.searchParams);
     const tool = buildToolJoin(filters);
     const params = [...tool.params, toolType];
+    const labelExpr = "COALESCE(tc.tool_name, '<unknown>')";
 
     const rows = db
       .prepare(
-        `SELECT tool_name, COUNT(*) as count
+        `SELECT ${labelExpr} as tool_name, COUNT(*) as count
         FROM tool_calls tc
         ${tool.join}
         ${tool.where}
         AND tc.tool_type = ?
-        GROUP BY tool_name
+        GROUP BY ${labelExpr}
         ORDER BY count DESC
         LIMIT ${filters.topN}`
       )
       .all(params);
 
-    return jsonResponse({ rows });
+    let otherCount: number | null = null;
+    if (rows.length) {
+      const otherRow = db
+        .prepare(
+          `SELECT COUNT(*) as count
+          FROM tool_calls tc
+          ${tool.join}
+          ${tool.where}
+          AND tc.tool_type = ?
+          AND ${labelExpr} NOT IN (${rows.map(() => "?").join(",")})`
+        )
+        .get([...params, ...rows.map((row) => row.tool_name)]) as
+        | { count: number | null }
+        | undefined;
+      otherCount = otherRow?.count ?? null;
+    }
+
+    return jsonResponse({
+      rows,
+      other:
+        otherCount && otherCount > 0
+          ? { tool_name: "Other", count: otherCount }
+          : null
+    });
   } catch (error) {
     return errorResponse(
       error instanceof Error ? error.message : "Failed to load tool names",

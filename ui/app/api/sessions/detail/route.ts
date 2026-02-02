@@ -13,7 +13,7 @@ export const GET = (request: NextRequest) => {
       return errorResponse("session_id is required", 400);
     }
 
-    const db = getDb();
+    const db = getDb(request.nextUrl.searchParams);
     const session = db
       .prepare("SELECT * FROM sessions WHERE session_id = ?")
       .get(sessionId);

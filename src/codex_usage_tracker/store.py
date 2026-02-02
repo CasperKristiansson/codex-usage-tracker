@@ -405,8 +405,20 @@ class UsageStore:
         )
         cur.execute(
             """
+            CREATE INDEX IF NOT EXISTS events_captured_at_utc_idx
+            ON events(captured_at_utc)
+            """
+        )
+        cur.execute(
+            """
             CREATE INDEX IF NOT EXISTS events_event_type_idx
             ON events(event_type)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS events_event_type_captured_at_utc_idx
+            ON events(event_type, captured_at_utc)
             """
         )
         cur.execute(
@@ -419,6 +431,12 @@ class UsageStore:
             """
             CREATE INDEX IF NOT EXISTS turns_captured_at_idx
             ON turns(captured_at)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS turns_captured_at_utc_idx
+            ON turns(captured_at_utc)
             """
         )
         cur.execute(
@@ -437,6 +455,12 @@ class UsageStore:
             """
             CREATE INDEX IF NOT EXISTS activity_captured_at_idx
             ON activity_events(captured_at)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS activity_captured_at_utc_idx
+            ON activity_events(captured_at_utc)
             """
         )
         cur.execute(
@@ -477,6 +501,12 @@ class UsageStore:
         )
         cur.execute(
             """
+            CREATE INDEX IF NOT EXISTS content_messages_captured_at_utc_idx
+            ON content_messages(captured_at_utc)
+            """
+        )
+        cur.execute(
+            """
             CREATE INDEX IF NOT EXISTS tool_calls_session_idx
             ON tool_calls(session_id)
             """
@@ -485,6 +515,12 @@ class UsageStore:
             """
             CREATE INDEX IF NOT EXISTS tool_calls_type_idx
             ON tool_calls(tool_type)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS tool_calls_captured_at_utc_idx
+            ON tool_calls(captured_at_utc)
             """
         )
         cur.execute(
