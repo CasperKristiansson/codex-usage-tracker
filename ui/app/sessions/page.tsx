@@ -182,7 +182,13 @@ export default function SessionsPage() {
 
   return (
     <div className="space-y-6">
-      <CardPanel title="Sessions" subtitle="Anomaly filters, saved views, and drilldowns">
+      <CardPanel
+        title="Sessions"
+        subtitle="Anomaly filters, saved views, and drilldowns"
+        exportData={sessions.data}
+        exportFileBase="sessions-list"
+        expandable
+      >
         <div className="space-y-4">
           <div className="flex flex-wrap items-end gap-3 rounded-xl border border-border/20 bg-card/60 px-4 py-3 shadow-sm">
             <div className="flex flex-col gap-1">

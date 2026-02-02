@@ -122,6 +122,9 @@ export default function ToolsPage() {
         <CardPanel
           title="Tool Composition"
           subtitle="Calls by tool type"
+          exportData={typeCounts.data}
+          exportFileBase="tools-composition"
+          expandable
           actions={
             selectedType ? <Badge className="normal-case">{selectedType}</Badge> : null
           }
@@ -156,6 +159,9 @@ export default function ToolsPage() {
               ? `Top names for ${selectedType}`
               : "Select a tool type to drill down"
           }
+          exportData={nameCounts.data}
+          exportFileBase="tools-names"
+          expandable
         >
           {selectedType
             ? renderPanelState(
@@ -178,7 +184,13 @@ export default function ToolsPage() {
       </section>
 
       <section className="grid gap-4 lg:grid-cols-2">
-        <CardPanel title="Tool Trends" subtitle="Call volume by tool over time">
+        <CardPanel
+          title="Tool Trends"
+          subtitle="Call volume by tool over time"
+          exportData={trend.data}
+          exportFileBase="tools-trends"
+          expandable
+        >
           {renderPanelState(
             trend,
             "No tool trend data.",
@@ -189,6 +201,9 @@ export default function ToolsPage() {
         <CardPanel
           title="Latency"
           subtitle="p50/p95 call durations with outliers"
+          exportData={latency.data}
+          exportFileBase="tools-latency"
+          expandable
         >
           {renderPanelState(
             latency,
@@ -207,6 +222,9 @@ export default function ToolsPage() {
       <CardPanel
         title="Failures"
         subtitle="Error rate by tool (click for samples)"
+        exportData={errorRates.data}
+        exportFileBase="tools-failures"
+        expandable
       >
         {renderPanelState(
           errorRates,

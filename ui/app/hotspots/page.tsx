@@ -121,6 +121,9 @@ export default function HotspotsPage() {
         title="Model x Directory"
         subtitle="Top token hotspots (click to filter)"
         className="min-h-[260px]"
+        exportData={matrix.data}
+        exportFileBase="hotspots-model-dir"
+        expandable
       >
         {renderPanelState(
           matrix,
@@ -136,6 +139,9 @@ export default function HotspotsPage() {
         <CardPanel
           title="Tokens per Turn"
           subtitle="Distribution histogram"
+          exportData={distribution.data}
+          exportFileBase="hotspots-token-distribution"
+          expandable
           actions={
             matrixModels.length ? (
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -175,7 +181,13 @@ export default function HotspotsPage() {
           )}
         </CardPanel>
 
-        <CardPanel title="Top Sessions" subtitle="Sessions with highest usage">
+        <CardPanel
+          title="Top Sessions"
+          subtitle="Sessions with highest usage"
+          exportData={topSessions.data}
+          exportFileBase="hotspots-top-sessions"
+          expandable
+        >
           {renderPanelState(
             topSessions,
             "No session data.",
@@ -237,4 +249,3 @@ export default function HotspotsPage() {
     </div>
   );
 }
-

@@ -201,6 +201,9 @@ export default function OverviewPage() {
       <CardPanel
         title="Usage Volume"
         subtitle="Tokens vs work volume (turns/sessions)"
+        exportData={volume.data}
+        exportFileBase="overview-usage-volume"
+        expandable
         actions={
           <SegmentedControl
             options={volumeOptions}
@@ -217,6 +220,9 @@ export default function OverviewPage() {
       <CardPanel
         title="Token Mix"
         subtitle="What drove token changes"
+        exportData={tokenMix.data}
+        exportFileBase="overview-token-mix"
+        expandable
         actions={
           <SegmentedControl
             options={tokenMixOptions}
@@ -231,7 +237,13 @@ export default function OverviewPage() {
       </CardPanel>
 
       <section className="grid gap-4 lg:grid-cols-2">
-        <CardPanel title="Model Share" subtitle="Top models over time">
+        <CardPanel
+          title="Model Share"
+          subtitle="Top models over time"
+          exportData={modelShare.data}
+          exportFileBase="overview-model-share"
+          expandable
+        >
           {renderPanelState(
             modelShare,
             "No model share data for these filters.",
@@ -248,6 +260,9 @@ export default function OverviewPage() {
         <CardPanel
           title="Directory Hotspots"
           subtitle="Directories driving usage"
+          exportData={directoryTop.data}
+          exportFileBase="overview-directory-hotspots"
+          expandable
           actions={
             <SegmentedControl
               options={directoryDepthOptions.map((option) => ({
@@ -285,6 +300,9 @@ export default function OverviewPage() {
         <CardPanel
           title="Context Pressure"
           subtitle="How close you run to context limit"
+          exportData={contextPressure.data}
+          exportFileBase="overview-context-pressure"
+          expandable
         >
           {renderPanelState(
             contextPressure,
@@ -298,7 +316,13 @@ export default function OverviewPage() {
             "h-48 w-full"
           )}
         </CardPanel>
-        <CardPanel title="Rate Limit Headroom" subtitle="Min 5h vs weekly left">
+        <CardPanel
+          title="Rate Limit Headroom"
+          subtitle="Min 5h vs weekly left"
+          exportData={rateLimit.data}
+          exportFileBase="overview-rate-limit"
+          expandable
+        >
           {renderPanelState(
             rateLimit,
             "No rate limit data for these filters.",
@@ -308,7 +332,13 @@ export default function OverviewPage() {
       </section>
 
       <section className="grid gap-4 lg:grid-cols-2">
-        <CardPanel title="Tool Composition" subtitle="Calls by tool type">
+        <CardPanel
+          title="Tool Composition"
+          subtitle="Calls by tool type"
+          exportData={toolsComposition.data}
+          exportFileBase="overview-tools-composition"
+          expandable
+        >
           {renderPanelState(
             toolsComposition,
             "No tool composition data for these filters.",
@@ -316,7 +346,13 @@ export default function OverviewPage() {
             "h-56 w-full"
           )}
         </CardPanel>
-        <CardPanel title="Workflow Friction" subtitle="Compaction and abort events">
+        <CardPanel
+          title="Workflow Friction"
+          subtitle="Compaction and abort events"
+          exportData={frictionEvents.data}
+          exportFileBase="overview-friction-events"
+          expandable
+        >
           {renderPanelState(
             frictionEvents,
             "No friction event data for these filters.",

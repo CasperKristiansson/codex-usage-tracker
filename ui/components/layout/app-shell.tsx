@@ -3,6 +3,8 @@
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 
+import { FilterCommandPalette } from "@/components/filters/filter-command-palette";
+import { KeyboardShortcuts } from "@/components/layout/keyboard-shortcuts";
 import SidebarNav from "@/components/layout/sidebar-nav";
 import TopHeader from "@/components/layout/top-header";
 
@@ -24,6 +26,8 @@ const AppShell = ({ children }: AppShellProps) => {
 
   return (
     <div className="flex min-h-screen">
+      <KeyboardShortcuts />
+      <FilterCommandPalette />
       <SidebarNav
         collapsed={collapsed}
         onToggle={() => setCollapsed((prev) => !prev)}

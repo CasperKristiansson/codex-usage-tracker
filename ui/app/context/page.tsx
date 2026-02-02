@@ -75,6 +75,9 @@ export default function ContextPage() {
         <CardPanel
           title="Context Histogram"
           subtitle="Distribution of context remaining"
+          exportData={histogram.data}
+          exportFileBase="context-histogram"
+          expandable
         >
           {renderPanelState(
             histogram,
@@ -82,7 +85,13 @@ export default function ContextPage() {
             (data) => <ContextHistogramChart data={data} />
           )}
         </CardPanel>
-        <CardPanel title="Danger Rate" subtitle="Percent of usage under 10%">
+        <CardPanel
+          title="Danger Rate"
+          subtitle="Percent of usage under 10%"
+          exportData={dangerRate.data}
+          exportFileBase="context-danger-rate"
+          expandable
+        >
           {renderPanelState(
             dangerRate,
             "No danger rate data.",
@@ -94,6 +103,9 @@ export default function ContextPage() {
       <CardPanel
         title="Compaction & Rollbacks"
         subtitle="Mitigation events and normalized rate"
+        exportData={compaction.data}
+        exportFileBase="context-compaction"
+        expandable
       >
         {renderPanelState(
           compaction,
@@ -115,6 +127,9 @@ export default function ContextPage() {
       <CardPanel
         title="Context vs Tokens"
         subtitle="Binned density view of context left vs tokens"
+        exportData={contextHeatmap.data}
+        exportFileBase="context-vs-tokens"
+        expandable
       >
         {renderPanelState(
           contextHeatmap,
@@ -126,3 +141,4 @@ export default function ContextPage() {
     </div>
   );
 }
+

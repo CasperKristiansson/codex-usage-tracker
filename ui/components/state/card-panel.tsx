@@ -1,5 +1,12 @@
-import type { ReactNode } from "react";
+"use client";
 
+import type { ReactNode } from "react";
+import { useState } from "react";
+import { Maximize2 } from "lucide-react";
+
+import { ExportMenu } from "@/components/state/export-menu";
+import { PanelExpandModal } from "@/components/state/panel-expand-modal";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 type CardPanelProps = {
@@ -9,6 +16,11 @@ type CardPanelProps = {
   footer?: ReactNode;
   children: ReactNode;
   className?: string;
+  exportData?: unknown;
+  exportFileBase?: string;
+  expandable?: boolean;
+  expandedContent?: ReactNode;
+  expandedClassName?: string;
 };
 
 const CardPanel = ({
@@ -17,8 +29,18 @@ const CardPanel = ({
   actions,
   footer,
   children,
-  className
+  className,
+  exportData,
+  exportFileBase,
+  expandable = false,
+  expandedContent,
+  expandedClassName
 }: CardPanelProps) => {
+  const [expanded, setExpanded] = useState(false);
+
+  const showExport = exportData !== undefined;
+  const showExpand = expandable;
+
   return (
     <section className={cn("card-panel flex flex-col", className)}>
       <div className="card-header">
@@ -26,13 +48,41 @@ const CardPanel = ({
           <div className="card-title">{title}</div>
           {subtitle ? <div className="card-subtitle">{subtitle}</div> : null}
         </div>
-        {actions ? <div className="flex items-center gap-2">{actions}</div> : null}
+        <div className="flex items-center gap-2">
+          {actions}
+          {showExport ? (
+            <ExportMenu data={exportData} title={title} fileBase={exportFileBase} />
+          ) : null}
+          {showExpand ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Expand"
+              onClick={() => setExpanded(true)}
+            >
+              <Maximize2 className="h-4 w-4" />
+            </Button>
+          ) : null}
+        </div>
       </div>
       <div className="flex-1 px-4 py-4">{children}</div>
       {footer ? (
         <div className="border-t border-border/15 px-4 py-3 text-xs text-muted-foreground">
           {footer}
         </div>
+      ) : null}
+      {showExpand ? (
+        <PanelExpandModal
+          open={expanded}
+          title={title}
+          subtitle={subtitle}
+          onClose={() => setExpanded(false)}
+          exportData={exportData}
+          exportFileBase={exportFileBase}
+          className={expandedClassName}
+        >
+          {expandedContent ?? children}
+        </PanelExpandModal>
       ) : null}
     </section>
   );

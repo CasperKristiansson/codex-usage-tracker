@@ -86,7 +86,7 @@ body {
 
 @layer components {
   .card-panel {
-    @apply rounded-lg border border-border/20 bg-card text-card-foreground shadow-soft;
+    @apply rounded-lg border border-border/20 bg-card text-card-foreground shadow-soft transition-shadow;
   }
   .card-header {
     @apply flex items-start justify-between gap-3 border-b border-border/15 px-4 py-3;
