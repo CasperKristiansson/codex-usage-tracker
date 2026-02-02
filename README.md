@@ -1,87 +1,205 @@
 # Codex Usage Tracker
 
-Local-first tracker for OpenAI Codex CLI token usage. It ingests Codex rollout JSONL files and stores numeric counts plus minimal metadata in SQLite for reports and exports.
+Codex Usage Tracker is a local-first tracker for OpenAI Codex CLI usage. It ingests Codex rollout JSONL files and stores token usage plus metadata in SQLite for reporting, exporting, and a local dashboard.
 
-## What it does
-- Ingests `TokenCount` events from Codex rollout JSONL files.
-- Captures model, directory, session, context window, and limit snapshots when available.
-- Stores usage data locally in SQLite.
-- Generates daily/weekly/monthly summaries and breakdowns by directory/model/session.
-- Exports raw events to JSON or CSV.
+![Dashboard screenshot](docs/image.png)
 
-![Codex Usage Tracker dashboard](docs/image.png)
+## Overview
 
-## Privacy
-This tool **does not store prompts, responses, or message text**. It only stores numeric counts and minimal metadata (model, directory, session id, version, timestamps).
+* **Primary goal:** Track and summarize Codex CLI token usage locally.
+* **Storage:** SQLite (local).
+* **Ingestion sources:** Codex rollout JSONL files (default), plus optional CLI output logs and app-server JSON-RPC logs.
+* **Interfaces:** CLI (`codex-track`) and a local Next.js dashboard (`codex-track ui`).
+
+## Features
+
+* Ingests `rollout-*.jsonl` under `~/.codex/sessions/**` and extracts usage events (TokenCount and related events).
+* Stores data locally in SQLite, with **incremental ingestion** (skips unchanged files based on mtime/size).
+* Generates **daily/weekly/monthly** summaries and breakdowns by **model**, **directory**, or **session**.
+* Exports raw events to **JSON** or **CSV**.
+* Shows the latest usage snapshot.
+* Runs a local Next.js dashboard via a CLI command.
+
+## How It Works
+
+### Data sources (ingestion paths)
+
+* **Rollout JSONL files (default ingestion source):**
+  `~/.codex/sessions/**/rollout-*.jsonl`
+
+* **CLI output logs (explicit ingestion):**
+  `codex-track ingest-cli --log <path>`
+  or from stdin: `codex-track ingest-cli --log -`
+
+* **App-server JSON-RPC logs (explicit ingestion):**
+  `codex-track ingest-app-server --log <path>`
+  or from stdin: `codex-track ingest-app-server --log -`
+
+### Auto-ingestion behavior
+
+These commands **auto-ingest rollout files** before producing output:
+
+* `codex-track report`
+* `codex-track export`
+* `codex-track status`
+* `codex-track ui`
+
+For `codex-track report`, time flags affect ingestion scope:
+
+* `--last` / `--from` / `--to` limit ingestion to **files modified in that range**.
+* `--today` is **local midnight → now**.
 
 ## Install
-From this repo:
+
+Requirements:
+
+* Python **>= 3.10**
+
+Install from the repo:
+
 ```bash
 python -m pip install -e .
 ```
 
 ## Quickstart
-Reports and exports automatically ingest new or updated rollout files under `~/.codex/sessions`, showing a progress line while they sync. When you pass `--last` or `--from/--to`, only rollout files modified in that range are scanned.
 
-Generate a 7-day report:
+### 1) Report (auto-ingests rollouts)
+
+Show today’s usage (local midnight → now):
+
 ```bash
-codex-track report --last 7d
+codex-track report --today
 ```
 
-Export raw events to CSV:
+Summarize the last 7 days, grouped by day, broken down by model:
+
 ```bash
-codex-track export --format csv --out usage.csv
+codex-track report --last 7d --group day --by model
 ```
 
-Show latest usage snapshot:
+Output as JSON instead of a table:
+
+```bash
+codex-track report --today --format json
+```
+
+### 2) Export raw events (auto-ingests rollouts)
+
+Export raw events as CSV:
+
+```bash
+codex-track export --format csv --out events.csv
+```
+
+### 3) Status snapshot (auto-ingests rollouts)
+
 ```bash
 codex-track status
 ```
 
-Launch the web dashboard:
+### 4) Launch the local dashboard (auto-ingests rollouts)
+
 ```bash
 codex-track ui
 ```
 
-The dashboard uses built-in pricing for GPT-5.2, gpt-5.1-codex-max, gpt-5.1-codex, and gpt-5.2-codex (per 1M tokens).
-The UI requires Node.js + pnpm in this repo.
+Run on a custom port and don’t open a browser:
 
-Clear the local DB:
 ```bash
-codex-track clear-db
+codex-track ui --port 3001 --no-open
 ```
 
-## Default storage location
-- macOS: `~/Library/Application Support/codex-usage-tracker/usage.sqlite`
-- Linux: `~/.local/share/codex-usage-tracker/usage.sqlite`
+## CLI Reference
 
-Override with `--db /path/to/usage.sqlite`.
+The package installs a CLI named: **`codex-track`**
 
-## Reporting examples
-Daily totals:
-```bash
-codex-track report --from 2026-01-01 --to 2026-01-07 --group day
-```
+| Command                         | Purpose                                                         | Key flags                                                                                                                                                                                               |
+| ------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `codex-track report`            | Generate summaries/breakdowns (auto-ingests rollouts)           | `--db`, `--rollouts`, `--last <Nd|Nh>`, `--today`, `--from <YYYY-MM-DD or ISO>`, `--to <YYYY-MM-DD or ISO>`, `--group day|week|month`, `--by model|directory|session`, `--format table|json|csv` |
+| `codex-track export`            | Export raw events (auto-ingests rollouts)                       | `--db`, `--rollouts`, `--format json|csv`, `--out <path>`                                                                                                                                              |
+| `codex-track status`            | Print latest usage snapshot (auto-ingests rollouts)             | `--db`, `--rollouts`                                                                                                                                                                                    |
+| `codex-track ui`                | Launch local Next.js dashboard from `ui/`                       | `--db`, `--rollouts`, `--port`, `--no-open`                                                                                                                                                             |
+| `codex-track ingest-cli`        | Parse Codex CLI logs for `/status` and final “Token usage” line | `--db`, `--log <path or ->`                                                                                                                                                                             |
+| `codex-track ingest-app-server` | Parse app-server JSON-RPC logs and write timings/metadata       | `--db`, `--log <path or ->`                                                                                                                                                                             |
+| `codex-track clear-db`          | Delete the local DB (prompts unless `--yes`)                    | `--db`, `--yes`                                                                                                                                                                                         |
 
-Breakdown by model:
-```bash
-codex-track report --last 30d --group week --by model
-```
+## Data Stored and Privacy
 
-Sample table output (fake data):
-```
-Period      Total  Input  Cached  Output  Reasoning
-----------  -----  -----  ------  ------  ---------
-2026-01-01  32000  25000  4000    3000    0
-2026-01-02  18000  15000  1000    2000    0
-```
+### What is stored (high level)
 
-## How it captures data
-- **Rollout ingestion (current):** reads `~/.codex/sessions/**/rollout-*.jsonl` and extracts `EventMsg::TokenCount` events only.
-- **Instrumentation mode (optional):** see `docs/research.md` for suggested hooks in `codex-main` if you want structured JSON events.
+SQLite tables include:
+
+* `meta`, `ingestion_files`
+* `events` (token usage + status snapshots + other event types; includes token counts, context window, rate/limit info, model, directory, session id, codex version, timestamps, source)
+* `sessions` (session metadata like cwd, originator, cli version, git info)
+* `turns` (turn metadata: model, cwd, sandbox/policy flags, truncation, reasoning flags)
+* `activity_events` (counts of message/tool activity types)
+* `content_messages` (full text from rollout events and response items)
+* `tool_calls` (tool arguments and outputs from response items)
+* `app_turns` (timings from app-server turn started/completed)
+* `app_items` (timings + command/tool metadata from app-server item events)
+* `weekly_quota_estimates` (derived weekly quota estimates)
+
+### Privacy note: documentation conflict
+
+Some documentation claims **“no prompt/response content is stored,”** but the actual data model includes `content_messages` and `tool_calls`, which store **message text** and **tool call inputs/outputs** from rollouts.
+
+If you are operating under a “no content stored” assumption, treat this as a **privacy-impacting discrepancy** and review how/where you run ingestion and where the resulting SQLite DB is stored and backed up.
+
+## Configuration
+
+### Default paths
+
+* **Default rollouts dir:** `~/.codex/sessions`
+
+* **Default DB path:**
+
+  * **macOS:** `~/Library/Application Support/codex-usage-tracker/usage.sqlite`
+  * **Linux:** `~/.local/share/codex-usage-tracker/usage.sqlite`
+
+Overrides:
+
+* Override DB path: `--db /path/to/usage.sqlite`
+* Override rollouts dir: `--rollouts /path/to/sessions`
+
+### Timezone
+
+Reports and timestamps use **`Europe/Stockholm`** as the local timezone.
+
+### Weekly quota estimates
+
+`codex-track report` may compute a weekly quota estimate based on the **last completed week**.
+
+* Default weekly reset: **Thursday at 09:15 (Europe/Stockholm)**
+* Override reset time via environment variable: `CODEX_USAGE_WEEKLY_RESET`
+
+### Dashboard environment variables
+
+When provided, `codex-track ui` sets:
+
+* `CODEX_USAGE_DB`
+* `CODEX_USAGE_ROLLOUTS`
+
+## Pricing and Cost Estimation
+
+Reports estimate cost using built-in pricing **per 1M tokens**:
+
+| Model               | Input | Cached input | Output |
+| ------------------- | ----: | -----------: | -----: |
+| `gpt-5.2`           | 1.750 |        0.175 | 14.000 |
+| `gpt-5.1-codex-max` |  1.25 |        0.125 |  10.00 |
+| `gpt-5.1-codex`     |  1.25 |        0.125 |  10.00 |
+| `gpt-5.2-codex`     |  1.75 |        0.175 |  14.00 |
 
 ## Development
+
 Run tests:
+
 ```bash
 python -m unittest discover -s tests
 ```
+
+## Notes
+
+* OS support is documented for **macOS** and **Linux** default DB paths only; a Windows default path is not specified here.
+* The “no prompt/response content stored” claim conflicts with the presence of `content_messages` and `tool_calls`. If this matters for your environment, validate the current behavior by inspecting the SQLite DB contents after ingestion.
