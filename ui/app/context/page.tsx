@@ -1,54 +1,127 @@
 "use client";
 
+import { useMemo } from "react";
+
+import {
+  CompactionEventsChart,
+  CompactionRatesTable,
+  ContextHistogramChart,
+  ContextTokensHeatmap,
+  DangerRateChart,
+  type CompactionTimeseries,
+  type ContextHistogram,
+  type ContextTokensHeatmapData,
+  type DangerRateTimeseries
+} from "@/components/context/context-charts";
+import type { VolumeTimeseries } from "@/components/overview/overview-charts";
 import { CardPanel } from "@/components/state/card-panel";
-import { DataPreview } from "@/components/state/data-preview";
 import { EmptyState } from "@/components/state/empty-state";
 import { ErrorState } from "@/components/state/error-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import { isEmptyResponse } from "@/lib/data";
+import { safeNumber } from "@/lib/charts";
 import { useEndpoint } from "@/lib/hooks/use-endpoint";
 import { useFilters } from "@/lib/hooks/use-filters";
 
 export default function ContextPage() {
   const { filters } = useFilters();
-  const histogram = useEndpoint<unknown>("/api/context/histogram", filters);
-  const dangerRate = useEndpoint<unknown>(
+  const histogram = useEndpoint<ContextHistogram>("/api/context/histogram", filters);
+  const dangerRate = useEndpoint<DangerRateTimeseries>(
     "/api/context/danger_rate_timeseries",
     filters
   );
-  const compaction = useEndpoint<unknown>(
+  const compaction = useEndpoint<CompactionTimeseries>(
     "/api/context/compaction_timeseries",
     filters
   );
+  const contextHeatmap = useEndpoint<ContextTokensHeatmapData>(
+    "/api/context/context_vs_tokens_scatter",
+    filters
+  );
+  const volume = useEndpoint<VolumeTimeseries>(
+    "/api/overview/volume_timeseries",
+    filters,
+    { ttl: 30_000 }
+  );
 
-  const renderPanelState = (state: typeof histogram, emptyLabel?: string) => {
-    if (state.isLoading) return <Skeleton className="h-48 w-full" />;
+  const totalTurns = useMemo(() => {
+    if (!volume.data?.rows) return null;
+    return volume.data.rows.reduce(
+      (sum, row) => sum + safeNumber(row.turns),
+      0
+    );
+  }, [volume.data?.rows]);
+
+  const renderPanelState = <T,>(
+    state: {
+      data?: T;
+      error?: Error;
+      isLoading: boolean;
+      refetch: () => void;
+    },
+    emptyLabel: string,
+    render: (data: T) => JSX.Element,
+    skeletonClass = "h-56 w-full"
+  ) => {
+    if (state.isLoading) return <Skeleton className={skeletonClass} />;
     if (state.error) return <ErrorState onRetry={state.refetch} />;
-    if (isEmptyResponse(state.data))
-      return <EmptyState description={emptyLabel} />;
-    return <DataPreview data={state.data} />;
+    if (isEmptyResponse(state.data)) return <EmptyState description={emptyLabel} />;
+    return render(state.data as T);
   };
 
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
-      <CardPanel
-        title="Context Histogram"
-        subtitle="Distribution of context remaining"
-      >
-        {renderPanelState(histogram, "No context distribution data.")}
-      </CardPanel>
-      <CardPanel
-        title="Danger Rate"
-        subtitle="Percent of usage under 10% context"
-      >
-        {renderPanelState(dangerRate, "No danger rate data.")}
-      </CardPanel>
+    <div className="space-y-6">
+      <section className="grid gap-4 lg:grid-cols-2">
+        <CardPanel
+          title="Context Histogram"
+          subtitle="Distribution of context remaining"
+        >
+          {renderPanelState(
+            histogram,
+            "No context distribution data.",
+            (data) => <ContextHistogramChart data={data} />
+          )}
+        </CardPanel>
+        <CardPanel title="Danger Rate" subtitle="Percent of usage under 10%">
+          {renderPanelState(
+            dangerRate,
+            "No danger rate data.",
+            (data) => <DangerRateChart data={data} />
+          )}
+        </CardPanel>
+      </section>
+
       <CardPanel
         title="Compaction & Rollbacks"
-        subtitle="Trend of context mitigation events"
-        className="lg:col-span-2"
+        subtitle="Mitigation events and normalized rate"
       >
-        {renderPanelState(compaction, "No compaction data.")}
+        {renderPanelState(
+          compaction,
+          "No compaction data.",
+          (data) => (
+            <div className="grid gap-4 lg:grid-cols-[2fr,1fr]">
+              <CompactionEventsChart data={data} />
+              <CompactionRatesTable
+                data={data}
+                totalTurns={totalTurns}
+                isLoadingTurns={volume.isLoading}
+              />
+            </div>
+          ),
+          "h-72 w-full"
+        )}
+      </CardPanel>
+
+      <CardPanel
+        title="Context vs Tokens"
+        subtitle="Binned density view of context left vs tokens"
+      >
+        {renderPanelState(
+          contextHeatmap,
+          "No context vs token data.",
+          (data) => <ContextTokensHeatmap data={data} />,
+          "h-72 w-full"
+        )}
       </CardPanel>
     </div>
   );

@@ -13,6 +13,7 @@ export const GET = (request: NextRequest) => {
   try {
     const filters = parseFilters(request.nextUrl.searchParams);
     const sessionId = request.nextUrl.searchParams.get("session_id");
+    const toolLabel = request.nextUrl.searchParams.get("tool");
     const rangeHours = getRangeHours(filters);
 
     if (!sessionId && rangeHours > 24) {
@@ -27,6 +28,11 @@ export const GET = (request: NextRequest) => {
     if (sessionId) {
       whereSql = `${whereSql} AND tc.session_id = ?`;
       params.push(sessionId);
+    }
+
+    if (toolLabel) {
+      whereSql = `${whereSql} AND COALESCE(tc.tool_name, tc.tool_type) = ?`;
+      params.push(toolLabel);
     }
 
     const rows = db
