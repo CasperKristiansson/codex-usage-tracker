@@ -7,3 +7,4 @@ ui/.next
 ui/.sync
 .pnpm-store
 *.tsbuildinfo
+dist

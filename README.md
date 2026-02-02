@@ -2,6 +2,30 @@
 
 Codex Usage Tracker is a local-first tracker for OpenAI Codex CLI usage. It ingests Codex rollout JSONL files and stores token usage plus metadata in SQLite for reporting, exporting, and a local dashboard.
 
+## Install (One Command)
+
+Builds the bundled UI + backend and installs a `codex-track` binary on your PATH:
+
+```bash
+./scripts/install.sh
+codex-track web
+```
+
+Default install locations:
+
+* Bundle: `~/.codex-usage-tracker`
+* Binary: `~/.local/bin/codex-track`
+
+Make sure `~/.local/bin` is on your PATH.
+
+Override with:
+
+```bash
+CODEX_USAGE_INSTALL_DIR=/path/to/install \
+CODEX_USAGE_BIN_DIR=/path/to/bin \
+./scripts/install.sh
+```
+
 ![Dashboard screenshot](docs/image.png)
 
 ## Overview
@@ -9,7 +33,7 @@ Codex Usage Tracker is a local-first tracker for OpenAI Codex CLI usage. It inge
 * **Primary goal:** Track and summarize Codex CLI token usage locally.
 * **Storage:** SQLite (local).
 * **Ingestion sources:** Codex rollout JSONL files (default), plus optional CLI output logs and app-server JSON-RPC logs.
-* **Interfaces:** CLI (`codex-track`) and a local Next.js dashboard (`codex-track ui`).
+* **Interfaces:** CLI (`codex-track`) and a local Next.js dashboard (`codex-track web`).
 
 ## Features
 
@@ -42,24 +66,18 @@ These commands **auto-ingest rollout files** before producing output:
 * `codex-track report`
 * `codex-track export`
 * `codex-track status`
-* `codex-track ui`
+* `codex-track web` (or `codex-track ui`)
 
 For `codex-track report`, time flags affect ingestion scope:
 
 * `--last` / `--from` / `--to` limit ingestion to **files modified in that range**.
 * `--today` is **local midnight → now**.
 
-## Install
-
-Requirements:
+## Requirements
 
 * Python **>= 3.10**
-
-Install from the repo:
-
-```bash
-python -m pip install -e .
-```
+* Node.js (for the packaged UI runtime)
+* pnpm (for building the UI during install)
 
 ## Quickstart
 
@@ -100,25 +118,26 @@ codex-track status
 ### 4) Launch the local dashboard (auto-ingests rollouts)
 
 ```bash
-codex-track ui
+codex-track web
 ```
 
 Run on a custom port and don’t open a browser:
 
 ```bash
-codex-track ui --port 3001 --no-open
+codex-track web --port 3001 --no-open
 ```
 
 ## CLI Reference
 
-The package installs a CLI named: **`codex-track`**
+The bundled CLI is named: **`codex-track`**
 
 | Command                         | Purpose                                                         | Key flags                                                                                                                                                                                               |
 | ------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `codex-track report`            | Generate summaries/breakdowns (auto-ingests rollouts)           | `--db`, `--rollouts`, `--last <Nd|Nh>`, `--today`, `--from <YYYY-MM-DD or ISO>`, `--to <YYYY-MM-DD or ISO>`, `--group day|week|month`, `--by model|directory|session`, `--format table|json|csv` |
 | `codex-track export`            | Export raw events (auto-ingests rollouts)                       | `--db`, `--rollouts`, `--format json|csv`, `--out <path>`                                                                                                                                              |
 | `codex-track status`            | Print latest usage snapshot (auto-ingests rollouts)             | `--db`, `--rollouts`                                                                                                                                                                                    |
-| `codex-track ui`                | Launch local Next.js dashboard from `ui/`                       | `--db`, `--rollouts`, `--port`, `--no-open`                                                                                                                                                             |
+| `codex-track web`               | Launch local Next.js dashboard from `ui/`                       | `--db`, `--rollouts`, `--port`, `--no-open`                                                                                                                                                             |
+| `codex-track ui`                | Alias for `codex-track web`                                     | `--db`, `--rollouts`, `--port`, `--no-open`                                                                                                                                                             |
 | `codex-track ingest-cli`        | Parse Codex CLI logs for `/status` and final “Token usage” line | `--db`, `--log <path or ->`                                                                                                                                                                             |
 | `codex-track ingest-app-server` | Parse app-server JSON-RPC logs and write timings/metadata       | `--db`, `--log <path or ->`                                                                                                                                                                             |
 | `codex-track clear-db`          | Delete the local DB (prompts unless `--yes`)                    | `--db`, `--yes`                                                                                                                                                                                         |
@@ -175,7 +194,7 @@ Reports and timestamps use **`Europe/Stockholm`** as the local timezone.
 
 ### Dashboard environment variables
 
-When provided, `codex-track ui` sets:
+When provided, `codex-track web` (or `codex-track ui`) sets:
 
 * `CODEX_USAGE_DB`
 * `CODEX_USAGE_ROLLOUTS`
@@ -197,6 +216,20 @@ Run tests:
 
 ```bash
 python -m unittest discover -s tests
+```
+
+## Packaging (local, macOS)
+
+Build a self-contained `dist/` bundle (UI standalone + backend sources) that runs without installing `pnpm` deps or the Python package:
+
+```bash
+./scripts/package.sh
+```
+
+Then run the packaged CLI:
+
+```bash
+./dist/codex-track web
 ```
 
 ## Notes

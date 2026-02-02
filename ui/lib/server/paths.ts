@@ -31,5 +31,9 @@ export const resolveRolloutsPath = () => {
 };
 
 export const resolveSyncDir = () => {
+  const override = process.env.CODEX_USAGE_SYNC_DIR?.trim();
+  if (override) {
+    return override;
+  }
   return path.join(process.cwd(), ".sync");
 };

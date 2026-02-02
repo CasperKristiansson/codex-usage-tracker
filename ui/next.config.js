@@ -2,7 +2,8 @@
 const nextConfig = {
   reactStrictMode: true,
   typedRoutes: true,
-  serverExternalPackages: ["better-sqlite3"]
+  serverExternalPackages: ["better-sqlite3"],
+  output: "standalone"
 };
 
 module.exports = nextConfig;

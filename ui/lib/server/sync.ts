@@ -32,6 +32,22 @@ type SyncRegistry = Map<string, SyncJob>;
 
 const SYNC_CLEANUP_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
+const resolveBackendRoot = () => {
+  const override = process.env.CODEX_USAGE_BACKEND_ROOT?.trim();
+  if (override) {
+    return path.resolve(override);
+  }
+  return path.resolve(process.cwd(), "..");
+};
+
+const resolvePythonPath = () => {
+  const override = process.env.CODEX_USAGE_PYTHONPATH?.trim();
+  if (override) {
+    return override;
+  }
+  return path.join(resolveBackendRoot(), "src");
+};
+
 const getRegistry = (): SyncRegistry => {
   const globalAny = globalThis as typeof globalThis & { __cutSyncJobs?: SyncRegistry };
   if (!globalAny.__cutSyncJobs) {
@@ -91,8 +107,8 @@ export const startSync = (filters: NormalizedFilters, dbPathOverride?: string | 
   const syncId = createSyncId(key);
   const syncDir = ensureSyncDir();
   const progressPath = path.join(syncDir, `${syncId}.json`);
-  const repoRoot = path.resolve(process.cwd(), "..");
-  const pythonPath = path.join(repoRoot, "src");
+  const repoRoot = resolveBackendRoot();
+  const pythonPath = resolvePythonPath();
 
   const args = [
     "-m",

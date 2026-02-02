@@ -96,6 +96,20 @@ def _open_browser(url: str, delay: float = 0.8) -> None:
     threading.Thread(target=_runner, daemon=True).start()
 
 
+def _resolve_ui_dist(repo_root: Path) -> Optional[Path]:
+    if os.environ.get("CODEX_USAGE_UI_DEV"):
+        return None
+    env_path = os.environ.get("CODEX_USAGE_UI_DIST")
+    if env_path:
+        candidate = Path(env_path)
+        if candidate.exists():
+            return candidate
+    candidate = repo_root / "dist" / "ui"
+    if candidate.exists():
+        return candidate
+    return None
+
+
 def _select_rollout_files(
     root: Path,
     start: Optional[datetime],
@@ -689,11 +703,19 @@ def build_parser() -> argparse.ArgumentParser:
     status_parser.add_argument("--db", type=Path, default=None)
     status_parser.add_argument("--rollouts", type=Path, default=None)
 
+    def add_ui_args(ui_subparser: argparse.ArgumentParser) -> None:
+        ui_subparser.add_argument("--db", type=Path, default=None)
+        ui_subparser.add_argument("--rollouts", type=Path, default=None)
+        ui_subparser.add_argument("--port", type=int, default=None)
+        ui_subparser.add_argument("--no-open", action="store_true")
+
     ui_parser = subparsers.add_parser("ui", help="Launch the Next.js dashboard")
-    ui_parser.add_argument("--db", type=Path, default=None)
-    ui_parser.add_argument("--rollouts", type=Path, default=None)
-    ui_parser.add_argument("--port", type=int, default=None)
-    ui_parser.add_argument("--no-open", action="store_true")
+    add_ui_args(ui_parser)
+
+    web_parser = subparsers.add_parser(
+        "web", help="Launch the web dashboard (alias for ui)"
+    )
+    add_ui_args(web_parser)
 
     ingest_cli_parser = subparsers.add_parser(
         "ingest-cli",
@@ -839,7 +861,7 @@ def main() -> None:
         )
         return
 
-    if args.command == "ui":
+    if args.command in ("ui", "web"):
         if args.db:
             os.environ["CODEX_USAGE_DB"] = str(args.db)
         if args.rollouts:
@@ -848,7 +870,24 @@ def main() -> None:
         port = args.port or 3000
         if not args.no_open:
             _open_browser(f"http://localhost:{port}")
-        ui_root = Path(__file__).resolve().parents[2] / "ui"
+        repo_root = Path(__file__).resolve().parents[2]
+        dist_root = _resolve_ui_dist(repo_root)
+        if dist_root is not None:
+            server_js = dist_root / "standalone" / "server.js"
+            if server_js.exists():
+                env = os.environ.copy()
+                env["PORT"] = str(port)
+                env.setdefault("NODE_ENV", "production")
+                env.setdefault("CODEX_USAGE_BACKEND_ROOT", str(repo_root))
+                env.setdefault("CODEX_USAGE_PYTHONPATH", str(repo_root / "src"))
+                result = subprocess.run(
+                    ["node", str(server_js)],
+                    env=env,
+                    cwd=str(server_js.parent),
+                    check=False,
+                )
+                sys.exit(result.returncode)
+        ui_root = repo_root / "ui"
         if not ui_root.exists():
             raise RuntimeError(f\"UI directory not found at {ui_root}\")
         env = os.environ.copy()
