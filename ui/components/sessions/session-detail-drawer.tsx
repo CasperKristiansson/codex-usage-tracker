@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 import { BarList } from "@/components/charts/bar-list";
 import { EmptyState } from "@/components/state/empty-state";
@@ -68,16 +68,25 @@ export const SessionDetailDrawer = ({
   const detailKey = sessionId ? `/api/sessions/detail?session_id=${sessionId}` : null;
   const detail = useApi<SessionDetail>(detailKey, { disabled: !sessionId });
 
-  const [activeTab, setActiveTab] = useState<"overview" | "debug">("overview");
-  const [turnInput, setTurnInput] = useState("");
-  const [turnQuery, setTurnQuery] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!sessionId) return;
-    setActiveTab("overview");
-    setTurnInput("");
-    setTurnQuery(null);
-  }, [sessionId]);
+  const [drawerState, setDrawerState] = useState(() => ({
+    sessionId: sessionId ?? null,
+    tab: "overview" as "overview" | "debug",
+    turnInput: "",
+    turnQuery: null as string | null
+  }));
+  const isStale = drawerState.sessionId !== sessionId;
+  const activeTab = isStale ? "overview" : drawerState.tab;
+  const turnInput = isStale ? "" : drawerState.turnInput;
+  const turnQuery = isStale ? null : drawerState.turnQuery;
+  const updateState = (patch: Partial<typeof drawerState>) => {
+    setDrawerState({
+      sessionId: sessionId ?? null,
+      tab: activeTab,
+      turnInput,
+      turnQuery,
+      ...patch
+    });
+  };
 
   const kpis = useMemo(() => {
     const totalTokens = detail.data?.totals?.total_tokens ?? null;
@@ -142,14 +151,14 @@ export const SessionDetailDrawer = ({
           <Button
             variant={activeTab === "overview" ? "default" : "ghost"}
             size="sm"
-            onClick={() => setActiveTab("overview")}
+            onClick={() => updateState({ tab: "overview" })}
           >
             Overview
           </Button>
           <Button
             variant={activeTab === "debug" ? "default" : "ghost"}
             size="sm"
-            onClick={() => setActiveTab("debug")}
+            onClick={() => updateState({ tab: "debug" })}
           >
             Debug
           </Button>
@@ -329,14 +338,14 @@ export const SessionDetailDrawer = ({
             <div className="flex flex-wrap items-center gap-2">
               <Input
                 value={turnInput}
-                onChange={(event) => setTurnInput(event.target.value)}
+                onChange={(event) => updateState({ turnInput: event.target.value })}
                 placeholder="Turn index"
                 className="w-32"
               />
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => setTurnQuery(turnInput.trim())}
+                onClick={() => updateState({ turnQuery: turnInput.trim() })}
                 disabled={!turnInput || !turnValid}
               >
                 Load messages
@@ -391,4 +400,3 @@ export const SessionDetailDrawer = ({
     </SideDrawer>
   );
 };
-

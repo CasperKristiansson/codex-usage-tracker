@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
 import { navItems, settingsItem } from "@/lib/nav";
-import { cn } from "@/lib/utils";
+import { asRoute, cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
@@ -45,7 +45,7 @@ const SidebarNav = ({ collapsed, onToggle }: SidebarNavProps) => {
           return (
             <Link
               key={item.href}
-              href={item.href}
+              href={asRoute(item.href)}
               className={cn(
                 "group flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
                 isActive
@@ -64,7 +64,7 @@ const SidebarNav = ({ collapsed, onToggle }: SidebarNavProps) => {
 
       <div className={cn("mt-auto flex flex-col gap-2", collapsed ? "items-center" : "")}> 
         <Link
-          href={settingsItem.href}
+          href={asRoute(settingsItem.href)}
           className={cn(
             "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground",
             pathname === settingsItem.href ? "bg-primary/15 text-primary" : "",

@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
+import { asRoute } from "@/lib/utils";
 const isTypingTarget = (target: EventTarget | null) => {
   if (!(target instanceof HTMLElement)) return false;
   const tag = target.tagName.toLowerCase();
@@ -48,7 +49,7 @@ const KeyboardShortcuts = () => {
         const route = routeMap[key];
         if (route && route !== pathname) {
           event.preventDefault();
-          router.push(route);
+          router.push(asRoute(route));
         }
       }
     };

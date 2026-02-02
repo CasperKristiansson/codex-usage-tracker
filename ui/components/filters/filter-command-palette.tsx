@@ -7,6 +7,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { setFilterParam } from "@/lib/filters";
+import { asRoute } from "@/lib/utils";
 
 const isTypingTarget = (target: EventTarget | null) => {
   if (!(target instanceof HTMLElement)) return false;
@@ -81,6 +82,7 @@ const FilterCommandPalette = () => {
       }
       if (event.key === "Escape" && open) {
         setOpen(false);
+        setValue("");
       }
     };
     window.addEventListener("keydown", handleKey);
@@ -91,10 +93,6 @@ const FilterCommandPalette = () => {
     if (!open) return;
     const id = window.setTimeout(() => inputRef.current?.focus(), 0);
     return () => window.clearTimeout(id);
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) setValue("");
   }, [open]);
 
   const applyFilters = () => {
@@ -111,7 +109,7 @@ const FilterCommandPalette = () => {
       setFilterParam(params, key as never, update as never);
     });
 
-    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+    router.replace(asRoute(`${pathname}?${params.toString()}`), { scroll: false });
     setOpen(false);
     setValue("");
   };
@@ -131,7 +129,10 @@ const FilterCommandPalette = () => {
     <div className="fixed inset-0 z-50">
       <div
         className="absolute inset-0 bg-black/55 backdrop-blur-sm"
-        onClick={() => setOpen(false)}
+        onClick={() => {
+          setOpen(false);
+          setValue("");
+        }}
       />
       <div className="relative z-10 mx-auto mt-24 w-[min(640px,92vw)]">
         <div className="rounded-2xl border border-border/30 bg-card shadow-2xl">
@@ -169,7 +170,14 @@ const FilterCommandPalette = () => {
               ))}
             </div>
             <div className="mt-4 flex justify-end gap-2">
-              <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setOpen(false);
+                  setValue("");
+                }}
+              >
                 Cancel
               </Button>
               <Button size="sm" onClick={applyFilters}>

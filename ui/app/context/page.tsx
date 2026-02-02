@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 
 import {
   CompactionEventsChart,
@@ -44,13 +44,14 @@ export default function ContextPage() {
     { ttl: 30_000 }
   );
 
+  const volumeRows = volume.data?.rows ?? null;
   const totalTurns = useMemo(() => {
-    if (!volume.data?.rows) return null;
-    return volume.data.rows.reduce(
+    if (!volumeRows) return null;
+    return volumeRows.reduce(
       (sum, row) => sum + safeNumber(row.turns),
       0
     );
-  }, [volume.data?.rows]);
+  }, [volumeRows]);
 
   const renderPanelState = <T,>(
     state: {
@@ -60,7 +61,7 @@ export default function ContextPage() {
       refetch: () => void;
     },
     emptyLabel: string,
-    render: (data: T) => JSX.Element,
+    render: (data: T) => ReactNode,
     skeletonClass = "h-56 w-full"
   ) => {
     if (state.isLoading) return <Skeleton className={skeletonClass} />;
@@ -141,4 +142,3 @@ export default function ContextPage() {
     </div>
   );
 }
-

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 
 import { SessionDetailDrawer } from "@/components/sessions/session-detail-drawer";
 import { Badge } from "@/components/ui/badge";
@@ -55,50 +55,74 @@ export default function SessionsPage() {
   const [minTokens, setMinTokens] = useState("");
   const [minTurns, setMinTurns] = useState("");
   const [minTokensPerTurn, setMinTokensPerTurn] = useState("");
-  const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const [viewName, setViewName] = useState("");
-  const [savedViews, setSavedViews] = useState<SavedView[]>([]);
-  const [activeSession, setActiveSession] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
+  const [savedViews, setSavedViews] = useState<SavedView[]>(() => {
+    if (typeof window === "undefined") return [];
     const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return;
+    if (!raw) return [];
     try {
       const parsed = JSON.parse(raw) as SavedView[];
-      if (Array.isArray(parsed)) setSavedViews(parsed);
+      return Array.isArray(parsed) ? parsed : [];
     } catch {
-      setSavedViews([]);
+      return [];
     }
-  }, []);
+  });
+  const [activeSession, setActiveSession] = useState<string | null>(null);
 
-  useEffect(() => {
-    setPage(1);
-  }, [
-    search,
-    minTokens,
-    minTurns,
-    minTokensPerTurn,
-    pageSize,
-    filters.from,
-    filters.to,
-    filters.bucket,
-    filters.models.join(","),
-    filters.dirs.join(","),
-    filters.source.join(",")
-  ]);
+  const filtersKey = useMemo(
+    () =>
+      [
+        search,
+        minTokens,
+        minTurns,
+        minTokensPerTurn,
+        pageSize,
+        filters.from,
+        filters.to,
+        filters.bucket,
+        filters.models.join(","),
+        filters.dirs.join(","),
+        filters.source.join(",")
+      ].join("|"),
+    [
+      search,
+      minTokens,
+      minTurns,
+      minTokensPerTurn,
+      pageSize,
+      filters.from,
+      filters.to,
+      filters.bucket,
+      filters.models,
+      filters.dirs,
+      filters.source
+    ]
+  );
+  const [pageState, setPageState] = useState(() => ({
+    key: filtersKey,
+    page: 1
+  }));
+  const currentPage = pageState.key === filtersKey ? pageState.page : 1;
 
   const sessionsKey = useMemo(() => {
     const params = new URLSearchParams(buildFilterQuery(filters));
-    params.set("page", String(page));
+    params.set("page", String(currentPage));
     params.set("pageSize", String(pageSize));
     if (search.trim()) params.set("q", search.trim());
     if (minTokens) params.set("min_tokens", minTokens);
     if (minTurns) params.set("min_turns", minTurns);
     if (minTokensPerTurn) params.set("min_tokens_per_turn", minTokensPerTurn);
     return `/api/sessions/list?${params.toString()}`;
-  }, [filters, page, pageSize, search, minTokens, minTurns, minTokensPerTurn]);
+  }, [
+    filters,
+    currentPage,
+    pageSize,
+    search,
+    minTokens,
+    minTurns,
+    minTokensPerTurn
+  ]);
 
   const sessions = useApi<SessionsList>(sessionsKey);
 
@@ -106,10 +130,6 @@ export default function SessionsPage() {
     const total = sessions.data?.total ?? 0;
     return Math.max(1, Math.ceil(total / pageSize));
   }, [pageSize, sessions.data?.total]);
-
-  useEffect(() => {
-    if (page > totalPages) setPage(totalPages);
-  }, [page, totalPages]);
 
   const activeFilterTags = useMemo(() => {
     const tags: string[] = [];
@@ -148,7 +168,7 @@ export default function SessionsPage() {
     setMinTurns(view.minTurns);
     setMinTokensPerTurn(view.minTokensPerTurn);
     setPageSize(view.pageSize);
-    setPage(1);
+    setPageState({ key: filtersKey, page: 1 });
   };
 
   const handleDeleteView = (name: string) => {
@@ -160,7 +180,7 @@ export default function SessionsPage() {
     setMinTokens("");
     setMinTurns("");
     setMinTokensPerTurn("");
-    setPage(1);
+    setPageState({ key: filtersKey, page: 1 });
   };
 
   const renderPanelState = <T,>(
@@ -171,7 +191,7 @@ export default function SessionsPage() {
       refetch: () => void;
     },
     emptyLabel: string,
-    render: (data: T) => JSX.Element,
+    render: (data: T) => ReactNode,
     skeletonClass = "h-48 w-full"
   ) => {
     if (state.isLoading) return <Skeleton className={skeletonClass} />;
@@ -311,7 +331,9 @@ export default function SessionsPage() {
             (data) => (
               <div className="space-y-3">
                 <div className="text-xs text-muted-foreground">
-                  Showing {formatCompactNumber(data.rows.length)} sessions · Page {data.page} of {totalPages} · Total {formatCompactNumber(data.total)}
+                  Showing {formatCompactNumber(data.rows.length)} sessions · Page{" "}
+                  {currentPage} of {totalPages} · Total{" "}
+                  {formatCompactNumber(data.total)}
                 </div>
                 <div className="overflow-hidden rounded-lg border border-border/20">
                   <table className="w-full text-xs">
@@ -363,22 +385,32 @@ export default function SessionsPage() {
                 </div>
                 <div className="flex items-center justify-between">
                   <div className="text-xs text-muted-foreground">
-                    Page {page} of {totalPages}
+                    Page {currentPage} of {totalPages}
                   </div>
                   <div className="flex items-center gap-2">
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => setPage((prev) => Math.max(prev - 1, 1))}
-                      disabled={page <= 1}
+                      onClick={() =>
+                        setPageState({
+                          key: filtersKey,
+                          page: Math.max(currentPage - 1, 1)
+                        })
+                      }
+                      disabled={currentPage <= 1}
                     >
                       Prev
                     </Button>
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => setPage((prev) => Math.min(prev + 1, totalPages))}
-                      disabled={page >= totalPages}
+                      onClick={() =>
+                        setPageState({
+                          key: filtersKey,
+                          page: Math.min(currentPage + 1, totalPages)
+                        })
+                      }
+                      disabled={currentPage >= totalPages}
                     >
                       Next
                     </Button>

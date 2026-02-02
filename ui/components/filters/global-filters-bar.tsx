@@ -15,6 +15,7 @@ import {
 } from "@/lib/filters";
 import { useEndpoint } from "@/lib/hooks/use-endpoint";
 import { useDebouncedValue } from "@/lib/hooks/use-debounced-value";
+import { asRoute } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -65,9 +66,9 @@ const GlobalFiltersBar = () => {
       new URLSearchParams(searchParams.toString()),
       defaults
     );
-    if (next.toString() !== searchParams.toString()) {
-      router.replace(`${pathname}?${next.toString()}`, { scroll: false });
-    }
+      if (next.toString() !== searchParams.toString()) {
+      router.replace(asRoute(`${pathname}?${next.toString()}`), { scroll: false });
+      }
   }, [searchParams, defaults, router, pathname]);
 
   const filters = useMemo(
@@ -110,7 +111,9 @@ const GlobalFiltersBar = () => {
   const replaceParams = useCallback(
     (nextParams: URLSearchParams) => {
       if (nextParams.toString() !== searchParams.toString()) {
-        router.replace(`${pathname}?${nextParams.toString()}`, { scroll: false });
+        router.replace(asRoute(`${pathname}?${nextParams.toString()}`), {
+          scroll: false
+        });
       }
     },
     [router, pathname, searchParams]

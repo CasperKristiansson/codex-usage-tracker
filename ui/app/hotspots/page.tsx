@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import {
@@ -22,6 +22,7 @@ import { formatCompactNumber } from "@/lib/format";
 import { useApi } from "@/lib/hooks/use-api";
 import { useEndpoint } from "@/lib/hooks/use-endpoint";
 import { useFilters } from "@/lib/hooks/use-filters";
+import { asRoute } from "@/lib/utils";
 
 export type TopSessions = {
   rows: Array<{
@@ -58,17 +59,11 @@ export default function HotspotsPage() {
     return (matrix.data?.models ?? []).filter((model) => model && model !== "Other");
   }, [matrix.data?.models]);
 
-  useEffect(() => {
-    if (filters.models.length) {
-      setOverlayModel("");
-      return;
-    }
-    if (overlayModel && !matrixModels.includes(overlayModel)) {
-      setOverlayModel("");
-    }
-  }, [filters.models.length, matrixModels, overlayModel]);
-
-  const overlayEnabled = Boolean(overlayModel) && filters.models.length === 0;
+  const overlayEnabled =
+    Boolean(overlayModel) &&
+    filters.models.length === 0 &&
+    matrixModels.includes(overlayModel);
+  const overlayValue = overlayEnabled ? overlayModel : "";
 
   const overlayKey = useMemo(() => {
     if (!overlayEnabled) return null;
@@ -95,7 +90,7 @@ export default function HotspotsPage() {
       : [directory];
     setFilterParam(params, "models", nextModels);
     setFilterParam(params, "dirs", nextDirs);
-    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+    router.replace(asRoute(`${pathname}?${params.toString()}`), { scroll: false });
   };
 
   const renderPanelState = <T,>(
@@ -106,7 +101,7 @@ export default function HotspotsPage() {
       refetch: () => void;
     },
     emptyLabel: string,
-    render: (data: T) => JSX.Element,
+    render: (data: T) => ReactNode,
     skeletonClass = "h-56 w-full"
   ) => {
     if (state.isLoading) return <Skeleton className={skeletonClass} />;
@@ -147,7 +142,7 @@ export default function HotspotsPage() {
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <span>Overlay</span>
                 <select
-                  value={overlayModel}
+                  value={overlayValue}
                   disabled={filters.models.length > 0}
                   onChange={(event) => setOverlayModel(event.target.value)}
                   className="h-8 rounded-md border border-border/40 bg-background px-2 text-xs text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-60"

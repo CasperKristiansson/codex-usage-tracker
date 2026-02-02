@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState, type MouseEvent } from "react";
+import { useCallback, useMemo, useState, type MouseEvent, type ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { BarList } from "@/components/charts/bar-list";
@@ -38,6 +38,7 @@ import { formatCompactNumber, formatPercent } from "@/lib/format";
 import { useApi } from "@/lib/hooks/use-api";
 import { useEndpoint } from "@/lib/hooks/use-endpoint";
 import { useFilters } from "@/lib/hooks/use-filters";
+import { asRoute } from "@/lib/utils";
 
 const volumeOptions: Array<{ value: VolumeMetric; label: string }> = [
   { value: "total_tokens", label: "Tokens" },
@@ -146,7 +147,7 @@ export default function OverviewPage() {
         ? Array.from(new Set([...existing, value]))
         : [value];
       setFilterParam(params, key, next);
-      router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+      router.replace(asRoute(`${pathname}?${params.toString()}`), { scroll: false });
     },
     [filters.dirs, filters.models, pathname, router, searchParams]
   );
@@ -154,7 +155,7 @@ export default function OverviewPage() {
   const renderPanelState = <T,>(
     state: EndpointState<T>,
     emptyLabel: string,
-    render: (data: T) => JSX.Element,
+    render: (data: T) => ReactNode,
     skeletonClass = "h-56 w-full"
   ) => {
     if (state.isLoading) return <Skeleton className={skeletonClass} />;

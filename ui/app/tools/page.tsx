@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 
 import { BarList } from "@/components/charts/bar-list";
 import {
@@ -59,24 +59,22 @@ export default function ToolsPage() {
   const [selectedType, setSelectedType] = useState<string | null>(null);
   const [drawerTool, setDrawerTool] = useState<string | null>(null);
 
-  useEffect(() => {
-    const rows = typeCounts.data?.rows ?? [];
-    if (!rows.length) return;
-    if (!selectedType || !rows.some((row) => row.tool_type === selectedType)) {
-      const firstValid = rows.find((row) => row.tool_type);
-      setSelectedType(firstValid?.tool_type ?? null);
-    }
-  }, [typeCounts.data?.rows, selectedType]);
+  const toolTypes = typeCounts.data?.rows ?? [];
+  const fallbackType = toolTypes.find((row) => row.tool_type)?.tool_type ?? null;
+  const activeType =
+    selectedType && toolTypes.some((row) => row.tool_type === selectedType)
+      ? selectedType
+      : fallbackType;
 
   const nameCountsKey = useMemo(() => {
-    if (!selectedType) return null;
+    if (!activeType) return null;
     const params = new URLSearchParams(buildFilterQuery(filters));
-    params.set("tool_type", selectedType);
+    params.set("tool_type", activeType);
     return `/api/tools/name_counts?${params.toString()}`;
-  }, [filters, selectedType]);
+  }, [filters, activeType]);
 
   const nameCounts = useApi<ToolNameCounts>(nameCountsKey, {
-    disabled: !selectedType
+    disabled: !activeType
   });
 
   const rangeHours = useMemo(() => {
@@ -107,7 +105,7 @@ export default function ToolsPage() {
       refetch: () => void;
     },
     emptyLabel: string,
-    render: (data: T) => JSX.Element,
+    render: (data: T) => ReactNode,
     skeletonClass = "h-48 w-full"
   ) => {
     if (state.isLoading) return <Skeleton className={skeletonClass} />;
@@ -125,9 +123,7 @@ export default function ToolsPage() {
           exportData={typeCounts.data}
           exportFileBase="tools-composition"
           expandable
-          actions={
-            selectedType ? <Badge className="normal-case">{selectedType}</Badge> : null
-          }
+          actions={activeType ? <Badge className="normal-case">{activeType}</Badge> : null}
         >
           {renderPanelState(
             typeCounts,
@@ -136,7 +132,7 @@ export default function ToolsPage() {
               const items = data.rows.map((row, index) => {
                 const label = row.tool_type || "Unknown";
                 const color =
-                  row.tool_type === selectedType
+                  row.tool_type === activeType
                     ? "hsl(var(--primary))"
                     : SERIES_COLORS[index % SERIES_COLORS.length];
                 return {
@@ -155,15 +151,15 @@ export default function ToolsPage() {
         <CardPanel
           title="Tool Names"
           subtitle={
-            selectedType
-              ? `Top names for ${selectedType}`
+            activeType
+              ? `Top names for ${activeType}`
               : "Select a tool type to drill down"
           }
           exportData={nameCounts.data}
           exportFileBase="tools-names"
           expandable
         >
-          {selectedType
+          {activeType
             ? renderPanelState(
                 nameCounts,
                 "No tool name data.",
@@ -177,7 +173,7 @@ export default function ToolsPage() {
                 }
               )
             : null}
-          {!selectedType ? (
+          {!activeType ? (
             <EmptyState description="Pick a tool type to see the top names." />
           ) : null}
         </CardPanel>
