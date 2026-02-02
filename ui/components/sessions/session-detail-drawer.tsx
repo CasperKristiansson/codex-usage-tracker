@@ -1,21 +1,51 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { BarList } from "@/components/charts/bar-list";
-import { SideDrawer } from "@/components/state/side-drawer";
 import { EmptyState } from "@/components/state/empty-state";
 import { ErrorState } from "@/components/state/error-state";
+import { SideDrawer } from "@/components/state/side-drawer";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { buildFilterQuery } from "@/lib/api";
 import { SERIES_COLORS } from "@/lib/charts";
 import { formatCompactNumber } from "@/lib/format";
 import { useApi } from "@/lib/hooks/use-api";
+import { useFilters } from "@/lib/hooks/use-filters";
 
 export type SessionDetail = {
   session: Record<string, string | null>;
   totals?: { total_tokens?: number; turns?: number } | null;
   top_models?: Array<{ model: string; total_tokens: number }>;
   top_directories?: Array<{ directory: string; total_tokens: number }>;
+};
+
+type ToolCallSample = {
+  rows: Array<{
+    captured_at_utc: string;
+    tool_type: string | null;
+    tool_name: string | null;
+    status: string | null;
+    call_id: string | null;
+    input_text: string | null;
+    output_text: string | null;
+    command: string | null;
+    session_id: string | null;
+    turn_index: number | null;
+  }>;
+};
+
+type MessageSample = {
+  rows: Array<{
+    captured_at_utc: string;
+    role: string | null;
+    message_type: string | null;
+    message: string | null;
+    session_id: string | null;
+    turn_index: number | null;
+  }>;
 };
 
 const formatTimestamp = (value?: string | null) => {
@@ -34,14 +64,25 @@ export const SessionDetailDrawer = ({
   open: boolean;
   onClose: () => void;
 }) => {
+  const { filters } = useFilters();
   const detailKey = sessionId ? `/api/sessions/detail?session_id=${sessionId}` : null;
   const detail = useApi<SessionDetail>(detailKey, { disabled: !sessionId });
+
+  const [activeTab, setActiveTab] = useState<"overview" | "debug">("overview");
+  const [turnInput, setTurnInput] = useState("");
+  const [turnQuery, setTurnQuery] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!sessionId) return;
+    setActiveTab("overview");
+    setTurnInput("");
+    setTurnQuery(null);
+  }, [sessionId]);
 
   const kpis = useMemo(() => {
     const totalTokens = detail.data?.totals?.total_tokens ?? null;
     const turns = detail.data?.totals?.turns ?? null;
-    const perTurn =
-      totalTokens && turns ? Math.round(totalTokens / turns) : null;
+    const perTurn = totalTokens && turns ? Math.round(totalTokens / turns) : null;
     return { totalTokens, turns, perTurn };
   }, [detail.data?.totals?.total_tokens, detail.data?.totals?.turns]);
 
@@ -60,20 +101,71 @@ export const SessionDetailDrawer = ({
     ].filter((item) => item.value);
   }, [detail.data?.session]);
 
+  const baseParams = useMemo(() => {
+    return new URLSearchParams(buildFilterQuery(filters));
+  }, [filters]);
+
+  const toolSampleKey = useMemo(() => {
+    if (!sessionId || activeTab !== "debug") return null;
+    const params = new URLSearchParams(baseParams);
+    params.set("session_id", sessionId);
+    return `/api/debug/tool_calls_sample?${params.toString()}`;
+  }, [activeTab, baseParams, sessionId]);
+
+  const toolSamples = useApi<ToolCallSample>(toolSampleKey, {
+    disabled: !sessionId || activeTab !== "debug"
+  });
+
+  const messageKey = useMemo(() => {
+    if (!sessionId || !turnQuery || activeTab !== "debug") return null;
+    const params = new URLSearchParams(baseParams);
+    params.set("session_id", sessionId);
+    params.set("turn_index", turnQuery);
+    return `/api/debug/messages_sample?${params.toString()}`;
+  }, [activeTab, baseParams, sessionId, turnQuery]);
+
+  const messageSamples = useApi<MessageSample>(messageKey, {
+    disabled: !sessionId || !turnQuery || activeTab !== "debug"
+  });
+
+  const turnNumber = Number(turnInput);
+  const turnValid = turnInput === "" || !Number.isNaN(turnNumber);
+
   return (
     <SideDrawer
       open={open}
       onClose={onClose}
       title={sessionId ? `Session ${sessionId}` : "Session"}
-      subtitle="Top models, directories, and totals"
+      subtitle="Overview and debug samples"
+      actions={
+        <div className="flex items-center gap-2">
+          <Button
+            variant={activeTab === "overview" ? "default" : "ghost"}
+            size="sm"
+            onClick={() => setActiveTab("overview")}
+          >
+            Overview
+          </Button>
+          <Button
+            variant={activeTab === "debug" ? "default" : "ghost"}
+            size="sm"
+            onClick={() => setActiveTab("debug")}
+          >
+            Debug
+          </Button>
+        </div>
+      }
     >
       {detail.isLoading ? (
         <Skeleton className="h-48 w-full" />
       ) : detail.error ? (
-        <ErrorState description="We could not load session details." onRetry={detail.refetch} />
+        <ErrorState
+          description="We could not load session details."
+          onRetry={detail.refetch}
+        />
       ) : !detail.data ? (
         <EmptyState description="No session data available." />
-      ) : (
+      ) : activeTab === "overview" ? (
         <div className="space-y-5">
           <div className="grid gap-3 sm:grid-cols-3">
             <div className="rounded-lg border border-border/20 bg-muted/20 px-3 py-3">
@@ -147,6 +239,152 @@ export const SessionDetailDrawer = ({
                 <EmptyState description="No directory data." />
               )}
             </div>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-5">
+          <div className="rounded-lg border border-border/20 bg-muted/20 px-3 py-3 text-xs text-muted-foreground">
+            Debug endpoints are capped at 200 rows and text is truncated to 800
+            characters. Use a session ID or narrow time range for safe sampling.
+          </div>
+
+          <div>
+            <div className="mb-2 flex items-center justify-between">
+              <div className="text-xs font-semibold text-foreground">Tool calls</div>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => toolSamples.refetch()}
+              >
+                Refresh
+              </Button>
+            </div>
+            {toolSamples.isLoading ? (
+              <Skeleton className="h-40 w-full" />
+            ) : toolSamples.error ? (
+              <ErrorState
+                description="We could not load tool call samples."
+                onRetry={toolSamples.refetch}
+              />
+            ) : toolSamples.data?.rows.length ? (
+              <div className="space-y-3">
+                {toolSamples.data.rows.map((row, index) => (
+                  <div
+                    key={`${row.call_id ?? "call"}-${row.captured_at_utc}-${index}`}
+                    className="rounded-lg border border-border/20 bg-muted/20 px-3 py-3"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                      <div className="flex items-center gap-2 text-foreground">
+                        <span className="font-semibold">
+                          {row.tool_name || row.tool_type || "Tool"}
+                        </span>
+                        {row.status ? (
+                          <span className="rounded-full border border-border/40 px-2 py-0.5 text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+                            {row.status}
+                          </span>
+                        ) : null}
+                      </div>
+                      <span className="text-muted-foreground">
+                        {formatTimestamp(row.captured_at_utc)}
+                      </span>
+                    </div>
+                    <div className="mt-2 text-[11px] text-muted-foreground">
+                      Turn {row.turn_index ?? "—"} · Call {row.call_id ?? "—"}
+                    </div>
+                    {row.command ? (
+                      <div className="mt-2 rounded-md bg-background/60 px-2 py-1 font-mono text-[11px] text-foreground">
+                        {row.command}
+                      </div>
+                    ) : null}
+                    {(row.input_text || row.output_text) && (
+                      <div className="mt-3 space-y-2 text-[11px] text-muted-foreground">
+                        {row.input_text ? (
+                          <details className="rounded-md border border-border/20 bg-background/60 px-2 py-1">
+                            <summary className="cursor-pointer">Input</summary>
+                            <pre className="mt-2 whitespace-pre-wrap text-foreground/90">
+                              {row.input_text}
+                            </pre>
+                          </details>
+                        ) : null}
+                        {row.output_text ? (
+                          <details className="rounded-md border border-border/20 bg-background/60 px-2 py-1">
+                            <summary className="cursor-pointer">Output</summary>
+                            <pre className="mt-2 whitespace-pre-wrap text-foreground/90">
+                              {row.output_text}
+                            </pre>
+                          </details>
+                        ) : null}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <EmptyState description="No tool call samples for this session." />
+            )}
+          </div>
+
+          <div>
+            <div className="mb-2 text-xs font-semibold text-foreground">Messages</div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Input
+                value={turnInput}
+                onChange={(event) => setTurnInput(event.target.value)}
+                placeholder="Turn index"
+                className="w-32"
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setTurnQuery(turnInput.trim())}
+                disabled={!turnInput || !turnValid}
+              >
+                Load messages
+              </Button>
+              {!turnValid ? (
+                <span className="text-xs text-amber-400">
+                  Turn index must be a number
+                </span>
+              ) : null}
+            </div>
+            {messageSamples.isLoading ? (
+              <Skeleton className="mt-3 h-40 w-full" />
+            ) : messageSamples.error ? (
+              <div className="mt-3">
+                <ErrorState
+                  description="We could not load messages for this turn."
+                  onRetry={messageSamples.refetch}
+                />
+              </div>
+            ) : messageSamples.data?.rows.length ? (
+              <div className="mt-3 space-y-3">
+                {messageSamples.data.rows.map((row, index) => (
+                  <div
+                    key={`${row.captured_at_utc}-${index}`}
+                    className="rounded-lg border border-border/20 bg-muted/20 px-3 py-3"
+                  >
+                    <div className="flex items-center justify-between gap-2 text-xs">
+                      <div className="font-semibold text-foreground">
+                        {row.role ?? "role"}
+                      </div>
+                      <span className="text-muted-foreground">
+                        {formatTimestamp(row.captured_at_utc)}
+                      </span>
+                    </div>
+                    <div className="mt-2 text-[11px] text-muted-foreground">
+                      Type {row.message_type ?? "—"}
+                    </div>
+                    <pre className="mt-2 whitespace-pre-wrap text-[11px] text-foreground/90">
+                      {row.message ?? "—"}
+                    </pre>
+                  </div>
+                ))}
+              </div>
+            ) : turnQuery ? (
+              <div className="mt-3">
+                <EmptyState description="No messages for this turn." />
+              </div>
+            ) : null}
           </div>
         </div>
       )}

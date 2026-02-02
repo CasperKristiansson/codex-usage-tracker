@@ -19,6 +19,12 @@ export const GET = (request: NextRequest) => {
 
     const pageRaw = Number(request.nextUrl.searchParams.get("page"));
     const sizeRaw = Number(request.nextUrl.searchParams.get("pageSize"));
+    const search = request.nextUrl.searchParams.get("q")?.trim();
+    const minTokensRaw = Number(request.nextUrl.searchParams.get("min_tokens"));
+    const minTurnsRaw = Number(request.nextUrl.searchParams.get("min_turns"));
+    const minTokensPerTurnRaw = Number(
+      request.nextUrl.searchParams.get("min_tokens_per_turn")
+    );
     const page = Number.isNaN(pageRaw) ? DEFAULT_PAGE : Math.max(pageRaw, 1);
     const pageSize = Number.isNaN(sizeRaw)
       ? DEFAULT_PAGE_SIZE
@@ -33,14 +39,46 @@ export const GET = (request: NextRequest) => {
     });
     const eventsWhere = applyEventType(base, "token_count");
 
+    let whereSql = eventsWhere.sql;
+    const whereParams = [...eventsWhere.params];
+
+    if (search) {
+      whereSql = `${whereSql} AND (e.session_id LIKE ? OR s.cwd LIKE ?)`;
+      whereParams.push(`%${search}%`, `%${search}%`);
+    }
+
+    const havingClauses: string[] = [];
+    const havingParams: Array<number> = [];
+    if (!Number.isNaN(minTokensRaw) && minTokensRaw > 0) {
+      havingClauses.push("SUM(e.total_tokens) >= ?");
+      havingParams.push(minTokensRaw);
+    }
+    if (!Number.isNaN(minTurnsRaw) && minTurnsRaw > 0) {
+      havingClauses.push("COUNT(*) >= ?");
+      havingParams.push(minTurnsRaw);
+    }
+    if (!Number.isNaN(minTokensPerTurnRaw) && minTokensPerTurnRaw > 0) {
+      havingClauses.push("(SUM(e.total_tokens) * 1.0 / COUNT(*)) >= ?");
+      havingParams.push(minTokensPerTurnRaw);
+    }
+
+    const havingSql = havingClauses.length
+      ? `HAVING ${havingClauses.join(" AND ")}`
+      : "";
+
     const totalRow = db
       .prepare(
-        `SELECT COUNT(DISTINCT session_id) as total
-        FROM events
-        ${eventsWhere.sql}
-        AND session_id IS NOT NULL`
+        `SELECT COUNT(*) as total FROM (
+          SELECT e.session_id
+          FROM events e
+          LEFT JOIN sessions s ON s.session_id = e.session_id
+          ${whereSql}
+          AND e.session_id IS NOT NULL
+          GROUP BY e.session_id
+          ${havingSql}
+        ) sub`
       )
-      .get(eventsWhere.params) as { total: number } | undefined;
+      .get([...whereParams, ...havingParams]) as { total: number } | undefined;
 
     const rows = db
       .prepare(
@@ -48,13 +86,14 @@ export const GET = (request: NextRequest) => {
           SUM(e.total_tokens) as total_tokens, COUNT(*) as turns
         FROM events e
         LEFT JOIN sessions s ON s.session_id = e.session_id
-        ${eventsWhere.sql}
+        ${whereSql}
         AND e.session_id IS NOT NULL
         GROUP BY e.session_id
+        ${havingSql}
         ORDER BY total_tokens DESC
         LIMIT ${pageSize} OFFSET ${offset}`
       )
-      .all(eventsWhere.params);
+      .all([...whereParams, ...havingParams]);
 
     return jsonResponse({
       page,
