@@ -13,14 +13,51 @@ const SyncStatus = () => {
     useSync(filters);
 
   const isMissing = status.data?.is_missing_data;
+  const progressData = progress.data?.progress;
   const progressLabel = useMemo(() => {
-    const progressData = progress.data?.progress;
     if (!progressData) return null;
     const parsed = progressData.files_parsed ?? 0;
+    const skipped = progressData.files_skipped ?? 0;
     const total = progressData.files_total ?? 0;
     if (!total) return null;
-    return `${parsed}/${total} files`;
-  }, [progress.data]);
+    return `${parsed + skipped}/${total} files`;
+  }, [progressData]);
+  const etaLabel = useMemo(() => {
+    const etaSeconds = progressData?.eta_seconds;
+    if (!etaSeconds || !Number.isFinite(etaSeconds)) return null;
+    const rounded = Math.max(0, Math.round(etaSeconds));
+    if (rounded < 60) return `${rounded}s`;
+    const minutes = Math.floor(rounded / 60);
+    const seconds = rounded % 60;
+    if (minutes < 60) return `${minutes}m ${seconds}s`;
+    const hours = Math.floor(minutes / 60);
+    const remMinutes = minutes % 60;
+    return `${hours}h ${remMinutes}m`;
+  }, [progressData]);
+  const errorCount = progressData?.errors ?? 0;
+  const errorSamples = progressData?.error_samples ?? [];
+  const details = useMemo(() => {
+    const parts: string[] = [];
+    if (progressLabel) parts.push(progressLabel);
+    if (etaLabel) parts.push(`ETA ${etaLabel}`);
+    if (errorCount) parts.push(`${errorCount} errors`);
+    return parts.length ? ` · ${parts.join(" · ")}` : "";
+  }, [progressLabel, etaLabel, errorCount]);
+  const errorTitle = useMemo(() => {
+    if (!errorSamples.length) return undefined;
+    return errorSamples
+      .map((sample) => {
+        const location = sample.line
+          ? `${sample.file ?? "unknown"}:${sample.line}`
+          : sample.file ?? "unknown";
+        const base = sample.error ? `${location}: ${sample.error}` : location;
+        return sample.snippet ? `${base}\n${sample.snippet}` : base;
+      })
+      .join("\n\n");
+  }, [errorSamples]);
+  const statusTitle = useMemo(() => {
+    return errorTitle ?? progress.data?.error ?? startError ?? undefined;
+  }, [errorTitle, progress.data?.error, startError]);
 
   const isError = Boolean(startError || progress.data?.status === "failed");
 
@@ -35,9 +72,9 @@ const SyncStatus = () => {
       ) : (
         <CircleCheck className="h-3.5 w-3.5 text-emerald-400" />
       )}
-      <span>
+      <span title={statusTitle}>
         {isRunning
-          ? `Syncing${progressLabel ? ` · ${progressLabel}` : ""}`
+          ? `Syncing${details}`
           : isError
             ? "Sync failed"
             : "Data missing for this range"}

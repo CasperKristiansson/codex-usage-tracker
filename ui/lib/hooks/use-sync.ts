@@ -17,7 +17,7 @@ export type SyncStatus = {
 
 export type SyncProgress = {
   sync_id: string;
-  status: "running" | "completed" | "failed";
+  status: "running" | "completed" | "failed" | "unknown";
   progress?: {
     files_total?: number;
     files_parsed?: number;
@@ -25,7 +25,18 @@ export type SyncProgress = {
     errors?: number;
     lines?: number;
     events?: number;
+    started_at?: number;
+    updated_at?: number;
+    eta_seconds?: number;
+    current_file?: string | null;
+    error_samples?: Array<{
+      file?: string;
+      line?: number | null;
+      error?: string;
+      snippet?: string | null;
+    }>;
   };
+  error?: string;
 };
 
 export const useSync = (filters: Filters) => {

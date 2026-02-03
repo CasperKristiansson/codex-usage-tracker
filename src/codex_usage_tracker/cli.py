@@ -5,7 +5,7 @@ import sys
 import threading
 import time
 import webbrowser
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, time as dt_time, timedelta
 from pathlib import Path
 from typing import Callable, Dict, Iterable, Optional, Tuple
@@ -48,6 +48,11 @@ class IngestStats:
     lines: int = 0
     events: int = 0
     errors: int = 0
+    started_at: Optional[float] = None
+    updated_at: Optional[float] = None
+    eta_seconds: Optional[float] = None
+    current_file: Optional[str] = None
+    error_samples: list[dict[str, object]] = field(default_factory=list)
 
 
 @dataclass
@@ -128,6 +133,14 @@ def _select_rollout_files(
         yield path, stat.st_mtime_ns, stat.st_size, mtime
 
 
+def _truncate_error_line(value: str, limit: int = 200) -> str:
+    cleaned = value.replace("\n", " ").replace("\r", " ")
+    if len(cleaned) <= limit:
+        return cleaned
+    trim = max(limit - 3, 0)
+    return cleaned[:trim] + "..."
+
+
 def ingest_rollouts(
     path: Path,
     store: UsageStore,
@@ -136,30 +149,80 @@ def ingest_rollouts(
     progress_callback: Optional[
         Callable[[IngestStats, int, int, Optional[Path]], None]
     ] = None,
+    verbose: bool = False,
+    strict: bool = False,
+    error_sample_limit: int = 5,
 ) -> IngestStats:
     store.ensure_ingest_version()
     stats = IngestStats()
+    stats.started_at = time.time()
     files = list(_select_rollout_files(path, start, end))
     stats.files_total = len(files)
     progress = ProgressPrinter(stats.files_total)
     turn_counters: Dict[str, int] = {}
     batch_size = 2000
 
+    def _update_timing(current: int, file_path: Optional[Path]) -> None:
+        now_ts = time.time()
+        if stats.started_at is None:
+            stats.started_at = now_ts
+        stats.updated_at = now_ts
+        stats.current_file = str(file_path) if file_path else None
+        if current <= 0 or not stats.files_total:
+            stats.eta_seconds = None
+            return
+        elapsed = now_ts - stats.started_at
+        if elapsed <= 0:
+            stats.eta_seconds = None
+            return
+        rate = current / elapsed
+        if rate <= 0:
+            stats.eta_seconds = None
+            return
+        remaining = max(stats.files_total - current, 0)
+        stats.eta_seconds = remaining / rate
+
+    def _record_error(
+        file_path: Path,
+        line_number: Optional[int],
+        raw: Optional[str],
+        error: Exception,
+        label: str = "Parse error",
+    ) -> None:
+        stats.errors += 1
+        location = f"{file_path}"
+        if line_number:
+            location = f"{location}:{line_number}"
+        if verbose:
+            sys.stderr.write(f"{label} in {location}: {error}\n")
+            if raw:
+                sys.stderr.write(f"  {_truncate_error_line(raw)}\n")
+            sys.stderr.flush()
+        elif len(stats.error_samples) < error_sample_limit:
+            stats.error_samples.append(
+                {
+                    "file": str(file_path),
+                    "line": line_number,
+                    "error": f"{label}: {error}",
+                    "snippet": _truncate_error_line(raw) if raw else None,
+                }
+            )
+        if strict:
+            raise RuntimeError(f"{label} in {location}: {error}") from error
+
     if progress_callback is not None:
+        _update_timing(0, None)
         progress_callback(stats, 0, stats.files_total, None)
 
     for idx, (file_path, mtime_ns, size, _) in enumerate(files, start=1):
         if not store.file_needs_ingest(str(file_path), mtime_ns, size):
             stats.files_skipped += 1
+            _update_timing(idx, file_path)
             progress.update(idx, stats, file_path)
             if progress_callback is not None:
                 progress_callback(stats, idx, stats.files_total, file_path)
             continue
 
-        store.delete_events_for_source(str(file_path))
-        store.delete_turns_for_source(str(file_path))
-        store.delete_activity_events_for_source(str(file_path))
-        store.delete_content_for_source(str(file_path))
         context = RolloutContext()
         session_meta_saved = False
         pending_events: list[UsageEvent] = []
@@ -169,234 +232,280 @@ def ingest_rollouts(
         pending_tool_calls: list[ToolCallEvent] = []
         try:
             with file_path.open("r", encoding="utf-8") as handle:
-                for raw in handle:
-                    raw = raw.strip()
-                    if not raw:
-                        continue
-                    stats.lines += 1
-                    try:
-                        parsed, context = parse_rollout_line(raw, context)
-                    except Exception:
-                        stats.errors += 1
-                        continue
-                    if parsed is None:
-                        continue
-                    if parsed.session_meta is not None and not session_meta_saved:
-                        session_meta_saved = True
-                        session = parsed.session_meta
-                        if session.session_id:
-                            store.upsert_session(
-                                SessionMeta(
-                                    session_id=session.session_id,
-                                    session_timestamp=session.session_timestamp_local.isoformat()
-                                    if session.session_timestamp_local
-                                    else None,
-                                    session_timestamp_utc=session.session_timestamp_utc.isoformat()
-                                    if session.session_timestamp_utc
-                                    else None,
-                                    cwd=session.cwd,
-                                    originator=session.originator,
-                                    cli_version=session.cli_version,
-                                    source=session.source,
-                                    model_provider=session.model_provider,
-                                    git_commit_hash=session.git_commit_hash,
-                                    git_branch=session.git_branch,
-                                    git_repository_url=session.git_repository_url,
-                                    captured_at=session.captured_at_local.isoformat(),
-                                    captured_at_utc=session.captured_at_utc.isoformat(),
-                                    rollout_source=str(file_path),
+                with store.transaction():
+                    store.delete_events_for_source(str(file_path), commit=False)
+                    store.delete_turns_for_source(str(file_path), commit=False)
+                    store.delete_activity_events_for_source(str(file_path), commit=False)
+                    store.delete_content_for_source(str(file_path), commit=False)
+
+                    for line_number, raw in enumerate(handle, start=1):
+                        raw = raw.strip()
+                        if not raw:
+                            continue
+                        stats.lines += 1
+                        try:
+                            parsed, context = parse_rollout_line(raw, context)
+                        except Exception as exc:
+                            _record_error(file_path, line_number, raw, exc)
+                            continue
+                        if parsed is None:
+                            continue
+                        if parsed.session_meta is not None and not session_meta_saved:
+                            session_meta_saved = True
+                            session = parsed.session_meta
+                            if session.session_id:
+                                store.upsert_session(
+                                    SessionMeta(
+                                        session_id=session.session_id,
+                                        session_timestamp=session.session_timestamp_local.isoformat()
+                                        if session.session_timestamp_local
+                                        else None,
+                                        session_timestamp_utc=session.session_timestamp_utc.isoformat()
+                                        if session.session_timestamp_utc
+                                        else None,
+                                        cwd=session.cwd,
+                                        originator=session.originator,
+                                        cli_version=session.cli_version,
+                                        source=session.source,
+                                        model_provider=session.model_provider,
+                                        git_commit_hash=session.git_commit_hash,
+                                        git_branch=session.git_branch,
+                                        git_repository_url=session.git_repository_url,
+                                        captured_at=session.captured_at_local.isoformat(),
+                                        captured_at_utc=session.captured_at_utc.isoformat(),
+                                        rollout_source=str(file_path),
+                                    ),
+                                    commit=False,
+                                )
+
+                        if parsed.turn_context is not None:
+                            turn = parsed.turn_context
+                            turn_key = context.session_id or f"file:{file_path}"
+                            turn_index = turn_counters.get(turn_key, 0) + 1
+                            turn_counters[turn_key] = turn_index
+                            pending_turns.append(
+                                TurnContext(
+                                    captured_at=turn.captured_at_local.isoformat(),
+                                    captured_at_utc=turn.captured_at_utc.isoformat(),
+                                    session_id=context.session_id,
+                                    turn_index=turn_index,
+                                    model=turn.model,
+                                    cwd=turn.cwd,
+                                    approval_policy=turn.approval_policy,
+                                    sandbox_policy_type=turn.sandbox_policy_type,
+                                    sandbox_network_access=turn.sandbox_network_access,
+                                    sandbox_writable_roots=turn.sandbox_writable_roots,
+                                    sandbox_exclude_tmpdir_env_var=turn.sandbox_exclude_tmpdir_env_var,
+                                    sandbox_exclude_slash_tmp=turn.sandbox_exclude_slash_tmp,
+                                    truncation_policy_mode=turn.truncation_policy_mode,
+                                    truncation_policy_limit=turn.truncation_policy_limit,
+                                    reasoning_effort=turn.reasoning_effort,
+                                    reasoning_summary=turn.reasoning_summary,
+                                    has_base_instructions=turn.has_base_instructions,
+                                    has_user_instructions=turn.has_user_instructions,
+                                    has_developer_instructions=turn.has_developer_instructions,
+                                    has_final_output_json_schema=turn.has_final_output_json_schema,
+                                    source=str(file_path),
                                 )
                             )
 
-                    if parsed.turn_context is not None:
-                        turn = parsed.turn_context
+                        if parsed.token_count is not None:
+                            token_count = parsed.token_count
+                            pending_events.append(
+                                UsageEvent(
+                                    captured_at=token_count.captured_at_local.isoformat(),
+                                    captured_at_utc=token_count.captured_at_utc.isoformat(),
+                                    event_type="token_count",
+                                    total_tokens=token_count.tokens.get("total_tokens"),
+                                    input_tokens=token_count.tokens.get("input_tokens"),
+                                    cached_input_tokens=token_count.tokens.get(
+                                        "cached_input_tokens"
+                                    ),
+                                    output_tokens=token_count.tokens.get("output_tokens"),
+                                    reasoning_output_tokens=token_count.tokens.get(
+                                        "reasoning_output_tokens"
+                                    ),
+                                    lifetime_total_tokens=token_count.lifetime_tokens.get(
+                                        "total_tokens"
+                                    ),
+                                    lifetime_input_tokens=token_count.lifetime_tokens.get(
+                                        "input_tokens"
+                                    ),
+                                    lifetime_cached_input_tokens=token_count.lifetime_tokens.get(
+                                        "cached_input_tokens"
+                                    ),
+                                    lifetime_output_tokens=token_count.lifetime_tokens.get(
+                                        "output_tokens"
+                                    ),
+                                    lifetime_reasoning_output_tokens=token_count.lifetime_tokens.get(
+                                        "reasoning_output_tokens"
+                                    ),
+                                    context_used=token_count.context_used,
+                                    context_total=token_count.context_total,
+                                    context_percent_left=token_count.context_percent_left,
+                                    limit_5h_percent_left=token_count.limit_5h_percent_left,
+                                    limit_5h_resets_at=token_count.limit_5h_resets_at,
+                                    limit_weekly_percent_left=token_count.limit_weekly_percent_left,
+                                    limit_weekly_resets_at=token_count.limit_weekly_resets_at,
+                                    limit_5h_used_percent=token_count.limit_5h_used_percent,
+                                    limit_5h_window_minutes=token_count.limit_5h_window_minutes,
+                                    limit_5h_resets_at_seconds=token_count.limit_5h_resets_at_seconds,
+                                    limit_weekly_used_percent=token_count.limit_weekly_used_percent,
+                                    limit_weekly_window_minutes=token_count.limit_weekly_window_minutes,
+                                    limit_weekly_resets_at_seconds=token_count.limit_weekly_resets_at_seconds,
+                                    rate_limit_has_credits=token_count.rate_limit_has_credits,
+                                    rate_limit_unlimited=token_count.rate_limit_unlimited,
+                                    rate_limit_balance=token_count.rate_limit_balance,
+                                    rate_limit_plan_type=token_count.rate_limit_plan_type,
+                                    model=context.model,
+                                    directory=context.directory,
+                                    session_id=context.session_id,
+                                    codex_version=context.codex_version,
+                                    source=str(file_path),
+                                )
+                            )
+
+                        if parsed.event_marker is not None:
+                            marker = parsed.event_marker
+                            pending_events.append(
+                                UsageEvent(
+                                    captured_at=marker.captured_at_local.isoformat(),
+                                    captured_at_utc=marker.captured_at_utc.isoformat(),
+                                    event_type=marker.event_type,
+                                    model=context.model,
+                                    directory=context.directory,
+                                    session_id=context.session_id,
+                                    codex_version=context.codex_version,
+                                    source=str(file_path),
+                                )
+                            )
+
                         turn_key = context.session_id or f"file:{file_path}"
-                        turn_index = turn_counters.get(turn_key, 0) + 1
-                        turn_counters[turn_key] = turn_index
-                        pending_turns.append(
-                            TurnContext(
-                                captured_at=turn.captured_at_local.isoformat(),
-                                captured_at_utc=turn.captured_at_utc.isoformat(),
-                                session_id=context.session_id,
-                                turn_index=turn_index,
-                                model=turn.model,
-                                cwd=turn.cwd,
-                                approval_policy=turn.approval_policy,
-                                sandbox_policy_type=turn.sandbox_policy_type,
-                                sandbox_network_access=turn.sandbox_network_access,
-                                sandbox_writable_roots=turn.sandbox_writable_roots,
-                                sandbox_exclude_tmpdir_env_var=turn.sandbox_exclude_tmpdir_env_var,
-                                sandbox_exclude_slash_tmp=turn.sandbox_exclude_slash_tmp,
-                                truncation_policy_mode=turn.truncation_policy_mode,
-                                truncation_policy_limit=turn.truncation_policy_limit,
-                                reasoning_effort=turn.reasoning_effort,
-                                reasoning_summary=turn.reasoning_summary,
-                                has_base_instructions=turn.has_base_instructions,
-                                has_user_instructions=turn.has_user_instructions,
-                                has_developer_instructions=turn.has_developer_instructions,
-                                has_final_output_json_schema=turn.has_final_output_json_schema,
-                                source=str(file_path),
-                            )
-                        )
-
-                    if parsed.token_count is not None:
-                        token_count = parsed.token_count
-                        pending_events.append(
-                            UsageEvent(
-                            captured_at=token_count.captured_at_local.isoformat(),
-                            captured_at_utc=token_count.captured_at_utc.isoformat(),
-                            event_type="token_count",
-                            total_tokens=token_count.tokens.get("total_tokens"),
-                            input_tokens=token_count.tokens.get("input_tokens"),
-                            cached_input_tokens=token_count.tokens.get(
-                                "cached_input_tokens"
-                            ),
-                            output_tokens=token_count.tokens.get("output_tokens"),
-                            reasoning_output_tokens=token_count.tokens.get(
-                                "reasoning_output_tokens"
-                            ),
-                            lifetime_total_tokens=token_count.lifetime_tokens.get(
-                                "total_tokens"
-                            ),
-                            lifetime_input_tokens=token_count.lifetime_tokens.get(
-                                "input_tokens"
-                            ),
-                            lifetime_cached_input_tokens=token_count.lifetime_tokens.get(
-                                "cached_input_tokens"
-                            ),
-                            lifetime_output_tokens=token_count.lifetime_tokens.get(
-                                "output_tokens"
-                            ),
-                            lifetime_reasoning_output_tokens=token_count.lifetime_tokens.get(
-                                "reasoning_output_tokens"
-                            ),
-                            context_used=token_count.context_used,
-                            context_total=token_count.context_total,
-                            context_percent_left=token_count.context_percent_left,
-                            limit_5h_percent_left=token_count.limit_5h_percent_left,
-                            limit_5h_resets_at=token_count.limit_5h_resets_at,
-                            limit_weekly_percent_left=token_count.limit_weekly_percent_left,
-                            limit_weekly_resets_at=token_count.limit_weekly_resets_at,
-                            limit_5h_used_percent=token_count.limit_5h_used_percent,
-                            limit_5h_window_minutes=token_count.limit_5h_window_minutes,
-                            limit_5h_resets_at_seconds=token_count.limit_5h_resets_at_seconds,
-                            limit_weekly_used_percent=token_count.limit_weekly_used_percent,
-                            limit_weekly_window_minutes=token_count.limit_weekly_window_minutes,
-                            limit_weekly_resets_at_seconds=token_count.limit_weekly_resets_at_seconds,
-                            rate_limit_has_credits=token_count.rate_limit_has_credits,
-                            rate_limit_unlimited=token_count.rate_limit_unlimited,
-                            rate_limit_balance=token_count.rate_limit_balance,
-                            rate_limit_plan_type=token_count.rate_limit_plan_type,
-                            model=context.model,
-                            directory=context.directory,
-                            session_id=context.session_id,
-                            codex_version=context.codex_version,
-                            source=str(file_path),
-                        )
-                        )
-
-                    if parsed.event_marker is not None:
-                        marker = parsed.event_marker
-                        pending_events.append(
-                            UsageEvent(
-                            captured_at=marker.captured_at_local.isoformat(),
-                            captured_at_utc=marker.captured_at_utc.isoformat(),
-                            event_type=marker.event_type,
-                            model=context.model,
-                            directory=context.directory,
-                            session_id=context.session_id,
-                            codex_version=context.codex_version,
-                            source=str(file_path),
-                        )
-                        )
-
-                    turn_key = context.session_id or f"file:{file_path}"
-                    turn_index = turn_counters.get(turn_key)
-                    if parsed.activity_events:
-                        for activity in parsed.activity_events:
-                            if activity.count <= 0:
-                                continue
-                            pending_activity.append(
-                                ActivityEvent(
-                                    captured_at=activity.captured_at_local.isoformat(),
-                                    captured_at_utc=activity.captured_at_utc.isoformat(),
-                                    event_type=activity.event_type,
-                                    event_name=activity.event_name,
-                                    count=activity.count,
-                                    session_id=context.session_id,
-                                    turn_index=turn_index,
-                                    source=str(file_path),
+                        turn_index = turn_counters.get(turn_key)
+                        if parsed.activity_events:
+                            for activity in parsed.activity_events:
+                                if activity.count <= 0:
+                                    continue
+                                pending_activity.append(
+                                    ActivityEvent(
+                                        captured_at=activity.captured_at_local.isoformat(),
+                                        captured_at_utc=activity.captured_at_utc.isoformat(),
+                                        event_type=activity.event_type,
+                                        event_name=activity.event_name,
+                                        count=activity.count,
+                                        session_id=context.session_id,
+                                        turn_index=turn_index,
+                                        source=str(file_path),
+                                    )
                                 )
-                            )
 
-                    if parsed.messages:
-                        for message in parsed.messages:
-                            pending_messages.append(
-                                MessageEvent(
-                                    captured_at=message.captured_at_local.isoformat(),
-                                    captured_at_utc=message.captured_at_utc.isoformat(),
-                                    role=message.role,
-                                    message_type=message.message_type,
-                                    message=message.message,
-                                    session_id=context.session_id,
-                                    turn_index=turn_index,
-                                    source=str(file_path),
+                        if parsed.messages:
+                            for message in parsed.messages:
+                                pending_messages.append(
+                                    MessageEvent(
+                                        captured_at=message.captured_at_local.isoformat(),
+                                        captured_at_utc=message.captured_at_utc.isoformat(),
+                                        role=message.role,
+                                        message_type=message.message_type,
+                                        message=message.message,
+                                        session_id=context.session_id,
+                                        turn_index=turn_index,
+                                        source=str(file_path),
+                                    )
                                 )
-                            )
 
-                    if parsed.tool_calls:
-                        for tool_call in parsed.tool_calls:
-                            pending_tool_calls.append(
-                                ToolCallEvent(
-                                    captured_at=tool_call.captured_at_local.isoformat(),
-                                    captured_at_utc=tool_call.captured_at_utc.isoformat(),
-                                    tool_type=tool_call.tool_type,
-                                    tool_name=tool_call.tool_name,
-                                    call_id=tool_call.call_id,
-                                    status=tool_call.status,
-                                    input_text=tool_call.input_text,
-                                    output_text=tool_call.output_text,
-                                    command=tool_call.command,
-                                    session_id=context.session_id,
-                                    turn_index=turn_index,
-                                    source=str(file_path),
+                        if parsed.tool_calls:
+                            for tool_call in parsed.tool_calls:
+                                pending_tool_calls.append(
+                                    ToolCallEvent(
+                                        captured_at=tool_call.captured_at_local.isoformat(),
+                                        captured_at_utc=tool_call.captured_at_utc.isoformat(),
+                                        tool_type=tool_call.tool_type,
+                                        tool_name=tool_call.tool_name,
+                                        call_id=tool_call.call_id,
+                                        status=tool_call.status,
+                                        input_text=tool_call.input_text,
+                                        output_text=tool_call.output_text,
+                                        command=tool_call.command,
+                                        session_id=context.session_id,
+                                        turn_index=turn_index,
+                                        source=str(file_path),
+                                    )
                                 )
-                            )
 
-                    if len(pending_events) >= batch_size:
-                        stats.events += store.insert_events_bulk(pending_events)
-                        pending_events = []
-                    if len(pending_turns) >= batch_size:
-                        store.insert_turns_bulk(pending_turns)
-                        pending_turns = []
-                    if len(pending_activity) >= batch_size:
-                        stats.events += store.insert_activity_events_bulk(pending_activity)
-                        pending_activity = []
-                    if len(pending_messages) >= batch_size:
-                        stats.events += store.insert_messages_bulk(pending_messages)
-                        pending_messages = []
-                    if len(pending_tool_calls) >= batch_size:
-                        stats.events += store.insert_tool_calls_bulk(pending_tool_calls)
-                        pending_tool_calls = []
-        except OSError:
-            stats.errors += 1
+                        if len(pending_events) >= batch_size:
+                            stats.events += store.insert_events_bulk(
+                                pending_events,
+                                commit=False,
+                            )
+                            pending_events = []
+                        if len(pending_turns) >= batch_size:
+                            store.insert_turns_bulk(pending_turns, commit=False)
+                            pending_turns = []
+                        if len(pending_activity) >= batch_size:
+                            stats.events += store.insert_activity_events_bulk(
+                                pending_activity,
+                                commit=False,
+                            )
+                            pending_activity = []
+                        if len(pending_messages) >= batch_size:
+                            stats.events += store.insert_messages_bulk(
+                                pending_messages,
+                                commit=False,
+                            )
+                            pending_messages = []
+                        if len(pending_tool_calls) >= batch_size:
+                            stats.events += store.insert_tool_calls_bulk(
+                                pending_tool_calls,
+                                commit=False,
+                            )
+                            pending_tool_calls = []
+                    stats.events += store.insert_events_bulk(pending_events, commit=False)
+                    store.insert_turns_bulk(pending_turns, commit=False)
+                    stats.events += store.insert_activity_events_bulk(
+                        pending_activity,
+                        commit=False,
+                    )
+                    stats.events += store.insert_messages_bulk(
+                        pending_messages,
+                        commit=False,
+                    )
+                    stats.events += store.insert_tool_calls_bulk(
+                        pending_tool_calls,
+                        commit=False,
+                    )
+                    store.mark_file_ingested(str(file_path), mtime_ns, size, commit=False)
+        except OSError as exc:
+            _record_error(file_path, None, None, exc, label="Read error")
+            _update_timing(idx, file_path)
             progress.update(idx, stats, file_path)
             continue
-
-        stats.events += store.insert_events_bulk(pending_events)
-        store.insert_turns_bulk(pending_turns)
-        stats.events += store.insert_activity_events_bulk(pending_activity)
-        stats.events += store.insert_messages_bulk(pending_messages)
-        stats.events += store.insert_tool_calls_bulk(pending_tool_calls)
-        store.mark_file_ingested(str(file_path), mtime_ns, size)
         stats.files_parsed += 1
+        _update_timing(idx, file_path)
         progress.update(idx, stats, file_path)
         if progress_callback is not None:
             progress_callback(stats, idx, stats.files_total, file_path)
 
     progress.finish()
     if progress_callback is not None:
+        _update_timing(stats.files_total, None)
         progress_callback(stats, stats.files_total, stats.files_total, None)
+    if stats.errors and not verbose and stats.error_samples:
+        sys.stderr.write(
+            f"Encountered {stats.errors} ingestion errors. "
+            f"Showing {len(stats.error_samples)} samples:\n"
+        )
+        for sample in stats.error_samples:
+            location = sample.get("file", "<unknown>")
+            line = sample.get("line")
+            if line:
+                location = f"{location}:{line}"
+            message = sample.get("error") or "Unknown error"
+            snippet = sample.get("snippet")
+            sys.stderr.write(f"- {location}: {message}\n")
+            if snippet:
+                sys.stderr.write(f"  {snippet}\n")
+        sys.stderr.flush()
     return stats
 
 
@@ -670,9 +779,22 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="codex-track")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
+    def add_ingest_args(target: argparse.ArgumentParser) -> None:
+        target.add_argument(
+            "--verbose",
+            action="store_true",
+            help="Print rollout parse errors during ingestion",
+        )
+        target.add_argument(
+            "--strict",
+            action="store_true",
+            help="Stop ingestion on the first rollout parse error",
+        )
+
     report_parser = subparsers.add_parser("report", help="Aggregate usage reports")
     report_parser.add_argument("--db", type=Path, default=None)
     report_parser.add_argument("--rollouts", type=Path, default=None)
+    add_ingest_args(report_parser)
     report_parser.add_argument("--last", type=str, default=None)
     report_parser.add_argument(
         "--today",
@@ -694,6 +816,7 @@ def build_parser() -> argparse.ArgumentParser:
     export_parser = subparsers.add_parser("export", help="Export raw events")
     export_parser.add_argument("--db", type=Path, default=None)
     export_parser.add_argument("--rollouts", type=Path, default=None)
+    add_ingest_args(export_parser)
     export_parser.add_argument("--format", choices=["json", "csv"], default="json")
     export_parser.add_argument("--out", type=Path, required=True)
 
@@ -702,6 +825,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     status_parser.add_argument("--db", type=Path, default=None)
     status_parser.add_argument("--rollouts", type=Path, default=None)
+    add_ingest_args(status_parser)
 
     def add_ui_args(ui_subparser: argparse.ArgumentParser) -> None:
         ui_subparser.add_argument("--db", type=Path, default=None)
@@ -755,7 +879,14 @@ def _ingest_for_range(
     end: Optional[datetime],
 ) -> None:
     rollouts_dir = args.rollouts if args.rollouts else default_rollouts_dir()
-    ingest_rollouts(rollouts_dir, store, start, end)
+    ingest_rollouts(
+        rollouts_dir,
+        store,
+        start,
+        end,
+        verbose=args.verbose,
+        strict=args.strict,
+    )
 
 
 def main() -> None:

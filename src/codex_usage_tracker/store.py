@@ -1,4 +1,5 @@
 import sqlite3
+from contextlib import contextmanager
 from datetime import datetime
 from dataclasses import dataclass
 from pathlib import Path
@@ -172,6 +173,17 @@ class UsageStore:
 
     def close(self) -> None:
         self.conn.close()
+
+    @contextmanager
+    def transaction(self):
+        try:
+            self.conn.execute("BEGIN")
+            yield
+        except Exception:
+            self.conn.rollback()
+            raise
+        else:
+            self.conn.commit()
 
     def _init_schema(self) -> None:
         cur = self.conn.cursor()
@@ -718,7 +730,11 @@ class UsageStore:
         )
         self.conn.commit()
 
-    def insert_events_bulk(self, events: Iterable[UsageEvent]) -> int:
+    def insert_events_bulk(
+        self,
+        events: Iterable[UsageEvent],
+        commit: bool = True,
+    ) -> int:
         batch = list(events)
         if not batch:
             return 0
@@ -807,10 +823,11 @@ class UsageStore:
                 for event in batch
             ],
         )
-        self.conn.commit()
+        if commit:
+            self.conn.commit()
         return len(batch)
 
-    def upsert_session(self, session: SessionMeta) -> None:
+    def upsert_session(self, session: SessionMeta, commit: bool = True) -> None:
         self.conn.execute(
             """
             INSERT INTO sessions (
@@ -861,7 +878,8 @@ class UsageStore:
                 session.rollout_source,
             ),
         )
-        self.conn.commit()
+        if commit:
+            self.conn.commit()
 
     def insert_turn(self, turn: TurnContext) -> None:
         self.conn.execute(
@@ -922,7 +940,11 @@ class UsageStore:
         )
         self.conn.commit()
 
-    def insert_turns_bulk(self, turns: Iterable[TurnContext]) -> int:
+    def insert_turns_bulk(
+        self,
+        turns: Iterable[TurnContext],
+        commit: bool = True,
+    ) -> int:
         batch = list(turns)
         if not batch:
             return 0
@@ -985,7 +1007,8 @@ class UsageStore:
                 for turn in batch
             ],
         )
-        self.conn.commit()
+        if commit:
+            self.conn.commit()
         return len(batch)
 
     def insert_activity_event(self, event: ActivityEvent) -> None:
@@ -1015,7 +1038,11 @@ class UsageStore:
         )
         self.conn.commit()
 
-    def insert_activity_events_bulk(self, events: Iterable[ActivityEvent]) -> int:
+    def insert_activity_events_bulk(
+        self,
+        events: Iterable[ActivityEvent],
+        commit: bool = True,
+    ) -> int:
         batch = list(events)
         if not batch:
             return 0
@@ -1046,7 +1073,8 @@ class UsageStore:
                 for event in batch
             ],
         )
-        self.conn.commit()
+        if commit:
+            self.conn.commit()
         return len(batch)
 
     def insert_app_turn(self, metric: AppTurnMetric) -> None:
@@ -1218,7 +1246,11 @@ class UsageStore:
         )
         self.conn.commit()
 
-    def insert_messages_bulk(self, events: Iterable[MessageEvent]) -> int:
+    def insert_messages_bulk(
+        self,
+        events: Iterable[MessageEvent],
+        commit: bool = True,
+    ) -> int:
         batch = list(events)
         if not batch:
             return 0
@@ -1249,7 +1281,8 @@ class UsageStore:
                 for event in batch
             ],
         )
-        self.conn.commit()
+        if commit:
+            self.conn.commit()
         return len(batch)
 
     def insert_tool_call(self, event: ToolCallEvent) -> None:
@@ -1287,7 +1320,11 @@ class UsageStore:
         )
         self.conn.commit()
 
-    def insert_tool_calls_bulk(self, events: Iterable[ToolCallEvent]) -> int:
+    def insert_tool_calls_bulk(
+        self,
+        events: Iterable[ToolCallEvent],
+        commit: bool = True,
+    ) -> int:
         batch = list(events)
         if not batch:
             return 0
@@ -1326,7 +1363,8 @@ class UsageStore:
                 for event in batch
             ],
         )
-        self.conn.commit()
+        if commit:
+            self.conn.commit()
         return len(batch)
 
     def iter_events(
@@ -1391,7 +1429,13 @@ class UsageStore:
             return True
         return row["mtime_ns"] != mtime_ns or row["size"] != size
 
-    def mark_file_ingested(self, path: str, mtime_ns: int, size: int) -> None:
+    def mark_file_ingested(
+        self,
+        path: str,
+        mtime_ns: int,
+        size: int,
+        commit: bool = True,
+    ) -> None:
         now = datetime.now().isoformat()
         self.conn.execute(
             """
@@ -1404,26 +1448,32 @@ class UsageStore:
             """,
             (path, mtime_ns, size, now),
         )
-        self.conn.commit()
+        if commit:
+            self.conn.commit()
 
-    def delete_events_for_source(self, source: str) -> None:
+    def delete_events_for_source(self, source: str, commit: bool = True) -> None:
         self.conn.execute("DELETE FROM events WHERE source = ?", (source,))
-        self.conn.commit()
+        if commit:
+            self.conn.commit()
 
-    def delete_turns_for_source(self, source: str) -> None:
+    def delete_turns_for_source(self, source: str, commit: bool = True) -> None:
         self.conn.execute("DELETE FROM turns WHERE source = ?", (source,))
-        self.conn.commit()
+        if commit:
+            self.conn.commit()
 
-    def delete_activity_events_for_source(self, source: str) -> None:
+    def delete_activity_events_for_source(self, source: str, commit: bool = True) -> None:
         self.conn.execute("DELETE FROM activity_events WHERE source = ?", (source,))
-        self.conn.commit()
+        if commit:
+            self.conn.commit()
 
-    def delete_app_server_events_for_source(self, source: str) -> None:
+    def delete_app_server_events_for_source(self, source: str, commit: bool = True) -> None:
         self.conn.execute("DELETE FROM app_turns WHERE source = ?", (source,))
         self.conn.execute("DELETE FROM app_items WHERE source = ?", (source,))
-        self.conn.commit()
+        if commit:
+            self.conn.commit()
 
-    def delete_content_for_source(self, source: str) -> None:
+    def delete_content_for_source(self, source: str, commit: bool = True) -> None:
         self.conn.execute("DELETE FROM content_messages WHERE source = ?", (source,))
         self.conn.execute("DELETE FROM tool_calls WHERE source = ?", (source,))
-        self.conn.commit()
+        if commit:
+            self.conn.commit()

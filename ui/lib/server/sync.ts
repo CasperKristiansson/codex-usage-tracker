@@ -16,6 +16,16 @@ export type SyncProgress = {
     lines?: number;
     events?: number;
     errors?: number;
+    started_at?: number;
+    updated_at?: number;
+    eta_seconds?: number;
+    current_file?: string | null;
+    error_samples?: Array<{
+      file?: string;
+      line?: number | null;
+      error?: string;
+      snippet?: string | null;
+    }>;
   } | null;
   error?: string;
 };

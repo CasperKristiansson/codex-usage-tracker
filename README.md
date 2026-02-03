@@ -26,8 +26,6 @@ CODEX_USAGE_BIN_DIR=/path/to/bin \
 ./scripts/install.sh
 ```
 
-![Dashboard screenshot](docs/image.png)
-
 ## Overview
 
 * **Primary goal:** Track and summarize Codex CLI token usage locally.
