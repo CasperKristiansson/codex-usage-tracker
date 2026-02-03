@@ -47,7 +47,6 @@ export const useSettings = () => {
   useEffect(() => {
     const handler = (next: Settings) => setSettings(next);
     listeners.add(handler);
-    setSettings(readSettings());
     return () => {
       listeners.delete(handler);
     };

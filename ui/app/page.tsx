@@ -2,7 +2,6 @@
 
 import {
   useCallback,
-  useEffect,
   useMemo,
   useState,
   type MouseEvent,
@@ -215,15 +214,13 @@ export default function OverviewPage() {
         ? modelShare.data.series
         : {};
     return Object.keys(series);
-  }, [modelShare.data?.series]);
-
-  useEffect(() => {
-    if (!modelSeriesKeys.length) return;
-    setModelShareVisible((prev) => {
-      const next = prev.filter((key) => modelSeriesKeys.includes(key));
-      return next.length ? next : modelSeriesKeys;
-    });
-  }, [modelSeriesKeys]);
+  }, [modelShare.data]);
+  const modelShareVisibleKeys = useMemo(() => {
+    if (!modelSeriesKeys.length) return [];
+    if (!modelShareVisible.length) return modelSeriesKeys;
+    const next = modelShareVisible.filter((key) => modelSeriesKeys.includes(key));
+    return next.length ? next : modelSeriesKeys;
+  }, [modelSeriesKeys, modelShareVisible]);
 
   const filterQuery = useMemo(() => {
     const params = new URLSearchParams(buildFilterQuery(filters));
@@ -311,16 +308,28 @@ export default function OverviewPage() {
     return render(state.data as T);
   };
 
-  const kpiValues = [
-    formatCompactNumber(kpis.data?.total_tokens),
-    formatCompactNumber(kpis.data?.input_tokens),
-    formatCompactNumber(kpis.data?.output_tokens),
-    formatCompactNumber(kpis.data?.reasoning_tokens),
-    formatCompactNumber(kpis.data?.cached_input_tokens),
-    formatPercent(kpis.data?.cache_share),
-    formatCompactNumber(kpis.data?.tool_calls),
-    formatPercent(kpis.data?.tool_error_rate)
-  ];
+  const kpiValues = useMemo(
+    () => [
+      formatCompactNumber(kpis.data?.total_tokens),
+      formatCompactNumber(kpis.data?.input_tokens),
+      formatCompactNumber(kpis.data?.output_tokens),
+      formatCompactNumber(kpis.data?.reasoning_tokens),
+      formatCompactNumber(kpis.data?.cached_input_tokens),
+      formatPercent(kpis.data?.cache_share),
+      formatCompactNumber(kpis.data?.tool_calls),
+      formatPercent(kpis.data?.tool_error_rate)
+    ],
+    [
+      kpis.data?.total_tokens,
+      kpis.data?.input_tokens,
+      kpis.data?.output_tokens,
+      kpis.data?.reasoning_tokens,
+      kpis.data?.cached_input_tokens,
+      kpis.data?.cache_share,
+      kpis.data?.tool_calls,
+      kpis.data?.tool_error_rate
+    ]
+  );
 
   const kpiLabels = useMemo(() => {
     if (!showCost) return baseKpiLabels;
@@ -525,7 +534,7 @@ export default function OverviewPage() {
               {modelShareToggleItems.length ? (
                 <SeriesToggles
                   items={modelShareToggleItems}
-                  activeKeys={modelShareVisible}
+                  activeKeys={modelShareVisibleKeys}
                   onChange={setModelShareVisible}
                 />
               ) : null}
@@ -535,7 +544,7 @@ export default function OverviewPage() {
                 (data) => (
                   <ModelShareChart
                     data={data}
-                    visibleKeys={modelShareVisible}
+                    visibleKeys={modelShareVisibleKeys}
                     onSelectModel={(model, shiftKey) =>
                       updateArrayFilter("models", model, shiftKey)
                     }

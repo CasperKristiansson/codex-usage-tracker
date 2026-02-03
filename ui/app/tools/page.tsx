@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 
 import { BarList } from "@/components/charts/bar-list";
 import { SeriesToggles } from "@/components/charts/series-toggles";
@@ -67,13 +67,12 @@ export default function ToolsPage() {
     return Array.from(new Set(rows.map((row) => row.tool)));
   }, [trend.data?.rows]);
 
-  useEffect(() => {
-    if (!trendKeys.length) return;
-    setTrendVisible((prev) => {
-      const next = prev.filter((key) => trendKeys.includes(key));
-      return next.length ? next : trendKeys;
-    });
-  }, [trendKeys]);
+  const trendVisibleKeys = useMemo(() => {
+    if (!trendKeys.length) return [];
+    if (!trendVisible.length) return trendKeys;
+    const next = trendVisible.filter((key) => trendKeys.includes(key));
+    return next.length ? next : trendKeys;
+  }, [trendKeys, trendVisible]);
 
   const trendToggleItems = useMemo(
     () =>
@@ -234,14 +233,14 @@ export default function ToolsPage() {
               {trendToggleItems.length ? (
                 <SeriesToggles
                   items={trendToggleItems}
-                  activeKeys={trendVisible}
+                  activeKeys={trendVisibleKeys}
                   onChange={setTrendVisible}
                 />
               ) : null}
               {renderPanelState(
                 trend,
                 "No tool trend data.",
-                (data) => <ToolTrendChart data={data} visibleKeys={trendVisible} />,
+                (data) => <ToolTrendChart data={data} visibleKeys={trendVisibleKeys} />,
                 "h-60 w-full"
               )}
             </div>

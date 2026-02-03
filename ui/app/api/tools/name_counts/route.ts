@@ -8,6 +8,11 @@ import { errorResponse, jsonResponse } from "@/lib/server/response";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+type ToolNameRow = {
+  tool_name: string | null;
+  count: number;
+};
+
 export const GET = (request: NextRequest) => {
   try {
     const toolType = request.nextUrl.searchParams.get("tool_type");
@@ -32,7 +37,7 @@ export const GET = (request: NextRequest) => {
         ORDER BY count DESC
         LIMIT ${filters.topN}`
       )
-      .all(params);
+      .all(params) as ToolNameRow[];
 
     let otherCount: number | null = null;
     if (rows.length) {

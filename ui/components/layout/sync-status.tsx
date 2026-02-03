@@ -35,7 +35,10 @@ const SyncStatus = () => {
     return `${hours}h ${remMinutes}m`;
   }, [progressData]);
   const errorCount = progressData?.errors ?? 0;
-  const errorSamples = progressData?.error_samples ?? [];
+  const errorSamples = useMemo(
+    () => progressData?.error_samples ?? [],
+    [progressData?.error_samples]
+  );
   const details = useMemo(() => {
     const parts: string[] = [];
     if (progressLabel) parts.push(progressLabel);

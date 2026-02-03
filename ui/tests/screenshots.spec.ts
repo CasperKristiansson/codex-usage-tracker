@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 
 type PageSpec = {
   name: string;
@@ -19,7 +19,7 @@ const pages: PageSpec[] = [
 
 const baseUrl = process.env.PLAYWRIGHT_BASE_URL || "http://127.0.0.1:3000";
 
-const waitForUi = async (page: Parameters<typeof test>[0]) => {
+const waitForUi = async (page: Page) => {
   await page.waitForFunction(() => {
     return document.querySelectorAll(".card-panel").length > 0;
   }, { timeout: 30000 });
