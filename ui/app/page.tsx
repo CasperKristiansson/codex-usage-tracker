@@ -241,6 +241,8 @@ export default function OverviewPage() {
     return params.toString();
   }, [filters, directoryDepth, settings.dbPath]);
   const directoryTop = useApi<DirectoryTop>(directoryQuery);
+  const repoTop = useEndpoint<DirectoryTop>("/api/overview/repo_top", filters);
+  const branchTop = useEndpoint<DirectoryTop>("/api/overview/branch_top", filters);
   const contextPressure = useEndpoint<ContextPressure>(
     "/api/overview/context_pressure",
     filters
@@ -731,6 +733,52 @@ export default function OverviewPage() {
                     ? undefined
                     : (event: MouseEvent<HTMLButtonElement>) =>
                         updateArrayFilter("dirs", row.label, event.shiftKey)
+              }));
+
+              return <BarList items={items} />;
+            }
+          )}
+        </CardPanel>
+        <CardPanel
+          title="Repo Hotspots"
+          subtitle="Usage by git repository"
+          exportData={repoTop.data}
+          exportFileBase="overview-repo-hotspots"
+          queryParams={filterQuery}
+          expandable
+        >
+          {renderPanelState(
+            repoTop,
+            "No repository data for these filters.",
+            (data) => {
+              const rows = [...data.rows, ...(data.other ? [data.other] : [])];
+              const items = rows.map((row, index) => ({
+                label: row.label,
+                value: row.total_tokens,
+                color: SERIES_COLORS[index % SERIES_COLORS.length]
+              }));
+
+              return <BarList items={items} />;
+            }
+          )}
+        </CardPanel>
+        <CardPanel
+          title="Branch Hotspots"
+          subtitle="Usage by git branch"
+          exportData={branchTop.data}
+          exportFileBase="overview-branch-hotspots"
+          queryParams={filterQuery}
+          expandable
+        >
+          {renderPanelState(
+            branchTop,
+            "No branch data for these filters.",
+            (data) => {
+              const rows = [...data.rows, ...(data.other ? [data.other] : [])];
+              const items = rows.map((row, index) => ({
+                label: row.label,
+                value: row.total_tokens,
+                color: SERIES_COLORS[index % SERIES_COLORS.length]
               }));
 
               return <BarList items={items} />;
