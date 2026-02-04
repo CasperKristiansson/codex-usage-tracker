@@ -83,3 +83,42 @@ export const getRangeHours = (filters: NormalizedFilters) => {
       (1000 * 60 * 60)
   );
 };
+
+const parseOffsetMinutes = (value: string) => {
+  const match = value.match(/([+-])(\d{2}):(\d{2})$/);
+  if (!match) return 0;
+  const sign = match[1] === "-" ? -1 : 1;
+  const hours = Number(match[2]);
+  const minutes = Number(match[3]);
+  if (Number.isNaN(hours) || Number.isNaN(minutes)) return 0;
+  return sign * (hours * 60 + minutes);
+};
+
+const pad2 = (value: number) => String(value).padStart(2, "0");
+
+const formatWithOffset = (timestamp: number, offsetMinutes: number) => {
+  const shifted = new Date(timestamp + offsetMinutes * 60_000);
+  const year = shifted.getUTCFullYear();
+  const month = pad2(shifted.getUTCMonth() + 1);
+  const day = pad2(shifted.getUTCDate());
+  const hours = pad2(shifted.getUTCHours());
+  const minutes = pad2(shifted.getUTCMinutes());
+  const seconds = pad2(shifted.getUTCSeconds());
+  const sign = offsetMinutes >= 0 ? "+" : "-";
+  const abs = Math.abs(offsetMinutes);
+  const offsetHours = pad2(Math.floor(abs / 60));
+  const offsetMins = pad2(abs % 60);
+  return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}${sign}${offsetHours}:${offsetMins}`;
+};
+
+export const getPreviousRange = (filters: NormalizedFilters) => {
+  const fromMs = new Date(filters.from).getTime();
+  const toMs = new Date(filters.to).getTime();
+  if (!Number.isFinite(fromMs) || !Number.isFinite(toMs)) return null;
+  const rangeMs = Math.max(0, toMs - fromMs);
+  const offsetMinutes = parseOffsetMinutes(filters.from);
+  return {
+    from: formatWithOffset(fromMs - rangeMs, offsetMinutes),
+    to: formatWithOffset(fromMs, offsetMinutes)
+  };
+};

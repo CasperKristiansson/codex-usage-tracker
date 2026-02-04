@@ -108,6 +108,13 @@ type OverviewKpis = {
   cost_coverage?: number;
 };
 
+type OverviewKpisComparison = {
+  current: OverviewKpis;
+  previous?: OverviewKpis | null;
+  range: { from: string; to: string };
+  previous_range?: { from: string; to: string } | null;
+};
+
 type EndpointState<T> = {
   data?: T;
   error?: Error;
@@ -115,16 +122,68 @@ type EndpointState<T> = {
   refetch: () => void;
 };
 
-const baseKpiLabels = [
-  "Total tokens",
-  "Input tokens",
-  "Output tokens",
-  "Reasoning tokens",
-  "Cached input",
-  "Cache share",
-  "Tool calls",
-  "Tool error rate"
-];
+type KpiItem = {
+  label: string;
+  value: string;
+  delta?: string;
+  tone?: "good" | "warn" | "bad";
+};
+
+type KpiConfig = {
+  key: keyof OverviewKpis;
+  label: string;
+  format: (value: number | null | undefined) => string;
+  deltaFormat: (value: number) => string;
+  tone?: (delta: number) => KpiItem["tone"];
+};
+
+const formatSignedValue = (value: number, formatAbs: (value: number) => string) => {
+  const sign = value > 0 ? "+" : value < 0 ? "-" : "";
+  return `${sign}${formatAbs(Math.abs(value))}`;
+};
+
+const percentDeltaFormatter = new Intl.NumberFormat("en", {
+  style: "percent",
+  maximumFractionDigits: 1
+});
+
+const formatSignedPercent = (value: number) => {
+  const sign = value > 0 ? "+" : value < 0 ? "-" : "";
+  return `${sign}${percentDeltaFormatter.format(Math.abs(value) / 100)}`;
+};
+
+const pointsFormatter = new Intl.NumberFormat("en", { maximumFractionDigits: 1 });
+
+const formatPoints = (value: number) => `${pointsFormatter.format(value)}pp`;
+
+const computeDelta = (
+  current: number | null | undefined,
+  previous: number | null | undefined
+) => {
+  if (current === null || current === undefined) return null;
+  if (previous === null || previous === undefined) return null;
+  return current - previous;
+};
+
+const computePercentChange = (
+  current: number | null | undefined,
+  previous: number | null | undefined
+) => {
+  if (current === null || current === undefined) return null;
+  if (previous === null || previous === undefined || previous === 0) return null;
+  return ((current - previous) / previous) * 100;
+};
+
+const buildDeltaText = (
+  delta: number | null,
+  percentChange: number | null,
+  formatAbs: (value: number) => string
+) => {
+  if (delta === null || !Number.isFinite(delta)) return undefined;
+  const base = formatSignedValue(delta, formatAbs);
+  if (percentChange === null || !Number.isFinite(percentChange)) return base;
+  return `${base} (${formatSignedPercent(percentChange)})`;
+};
 
 export default function OverviewPage() {
   const { filters } = useFilters();
@@ -153,7 +212,7 @@ export default function OverviewPage() {
   });
   const currencyLabel = pricingSettings.data?.currency_label ?? "$";
 
-  const kpis = useEndpoint<OverviewKpis>("/api/overview/kpis", filters, {
+  const kpis = useEndpoint<OverviewKpisComparison>("/api/overview/kpis_compare", filters, {
     ttl: 30_000
   });
   const volume = useEndpoint<VolumeTimeseries>(
@@ -313,48 +372,104 @@ export default function OverviewPage() {
     return render(state.data as T);
   };
 
-  const kpiValues = useMemo(
-    () => [
-      formatCompactNumber(kpis.data?.total_tokens),
-      formatCompactNumber(kpis.data?.input_tokens),
-      formatCompactNumber(kpis.data?.output_tokens),
-      formatCompactNumber(kpis.data?.reasoning_tokens),
-      formatCompactNumber(kpis.data?.cached_input_tokens),
-      formatPercent(kpis.data?.cache_share),
-      formatCompactNumber(kpis.data?.tool_calls),
-      formatPercent(kpis.data?.tool_error_rate)
-    ],
-    [
-      kpis.data?.total_tokens,
-      kpis.data?.input_tokens,
-      kpis.data?.output_tokens,
-      kpis.data?.reasoning_tokens,
-      kpis.data?.cached_input_tokens,
-      kpis.data?.cache_share,
-      kpis.data?.tool_calls,
-      kpis.data?.tool_error_rate
-    ]
-  );
+  const currentKpis = kpis.data?.current;
+  const previousKpis = kpis.data?.previous ?? null;
 
-  const kpiLabels = useMemo(() => {
-    if (!showCost) return baseKpiLabels;
-    return [...baseKpiLabels, "Estimated cost", "Cost coverage"];
-  }, [showCost]);
+  const kpiItems = useMemo(() => {
+    const current = currentKpis;
+    const previous = previousKpis;
+    const formatCurrencyDelta = (value: number) =>
+      formatCurrency(value, true, currencyLabel);
 
-  const kpiDisplayValues = useMemo(() => {
-    if (!showCost) return kpiValues;
-    return [
-      ...kpiValues,
-      formatCurrency(kpis.data?.estimated_cost, true, currencyLabel),
-      formatPercent(kpis.data?.cost_coverage)
+    const baseConfigs: KpiConfig[] = [
+      {
+        key: "total_tokens",
+        label: "Total tokens",
+        format: formatCompactNumber,
+        deltaFormat: formatCompactNumber
+      },
+      {
+        key: "input_tokens",
+        label: "Input tokens",
+        format: formatCompactNumber,
+        deltaFormat: formatCompactNumber
+      },
+      {
+        key: "output_tokens",
+        label: "Output tokens",
+        format: formatCompactNumber,
+        deltaFormat: formatCompactNumber
+      },
+      {
+        key: "reasoning_tokens",
+        label: "Reasoning tokens",
+        format: formatCompactNumber,
+        deltaFormat: formatCompactNumber
+      },
+      {
+        key: "cached_input_tokens",
+        label: "Cached input",
+        format: formatCompactNumber,
+        deltaFormat: formatCompactNumber
+      },
+      {
+        key: "cache_share",
+        label: "Cache share",
+        format: formatPercent,
+        deltaFormat: formatPoints,
+        tone: (delta) => (delta > 0 ? "good" : delta < 0 ? "warn" : undefined)
+      },
+      {
+        key: "tool_calls",
+        label: "Tool calls",
+        format: formatCompactNumber,
+        deltaFormat: formatCompactNumber
+      },
+      {
+        key: "tool_error_rate",
+        label: "Tool error rate",
+        format: formatPercent,
+        deltaFormat: formatPoints,
+        tone: (delta) => (delta > 0 ? "bad" : delta < 0 ? "good" : undefined)
+      }
     ];
-  }, [
-    showCost,
-    kpiValues,
-    kpis.data?.estimated_cost,
-    kpis.data?.cost_coverage,
-    currencyLabel
-  ]);
+
+    const configs = showCost
+      ? ([
+          ...baseConfigs,
+          {
+            key: "estimated_cost",
+            label: "Estimated cost",
+            format: (value) => formatCurrency(value, true, currencyLabel),
+            deltaFormat: formatCurrencyDelta
+          },
+          {
+            key: "cost_coverage",
+            label: "Cost coverage",
+            format: formatPercent,
+            deltaFormat: formatPoints,
+            tone: (delta) => (delta > 0 ? "good" : delta < 0 ? "warn" : undefined)
+          }
+        ] as KpiConfig[])
+      : baseConfigs;
+
+    return configs.map((config) => {
+      const currentValue = current?.[config.key];
+      const previousValue = previous?.[config.key];
+      const delta = computeDelta(currentValue, previousValue);
+      const percentChange = computePercentChange(currentValue, previousValue);
+      const deltaText = previous
+        ? buildDeltaText(delta, percentChange, config.deltaFormat)
+        : undefined;
+      const tone = delta !== null && config.tone ? config.tone(delta) : undefined;
+      return {
+        label: config.label,
+        value: config.format(currentValue),
+        delta: deltaText,
+        tone
+      } satisfies KpiItem;
+    });
+  }, [currentKpis, previousKpis, showCost, currencyLabel]);
 
   return (
     <div className="space-y-6">
@@ -362,11 +477,13 @@ export default function OverviewPage() {
         <ErrorState onRetry={kpis.refetch} />
       ) : (
         <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {kpiLabels.map((label, index) => (
+          {kpiItems.map((item) => (
             <KpiCard
-              key={label}
-              label={label}
-              value={kpiDisplayValues[index]}
+              key={item.label}
+              label={item.label}
+              value={item.value}
+              delta={item.delta}
+              tone={item.tone}
               isLoading={kpis.isLoading}
             />
           ))}
