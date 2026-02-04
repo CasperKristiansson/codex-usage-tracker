@@ -32,6 +32,8 @@ const RANGE_PRESETS = [
   { value: "7d", label: "7d", hours: 24 * 7 },
   { value: "14d", label: "14d", hours: 24 * 14 },
   { value: "30d", label: "30d", hours: 24 * 30 },
+  { value: "90d", label: "90d", hours: 24 * 90 },
+  { value: "180d", label: "180d", hours: 24 * 180 },
   { value: "custom", label: "Custom" }
 ];
 
@@ -80,10 +82,12 @@ const GlobalFiltersBar = () => {
     ttl: 60_000
   });
 
-  const rangePreset = useMemo(
+  const inferredPreset = useMemo(
     () => inferPreset(filters.from, filters.to),
     [filters.from, filters.to]
   );
+  const [customSelected, setCustomSelected] = useState(false);
+  const rangePreset = customSelected ? "custom" : inferredPreset;
   const [fromInput, setFromInput] = useState(
     formatDateTimeInput(filters.from, timeZone)
   );
@@ -132,7 +136,11 @@ const GlobalFiltersBar = () => {
   }, [debouncedTopN, updateParams]);
 
   const handlePresetChange = (value: string) => {
-    if (value === "custom") return;
+    if (value === "custom") {
+      setCustomSelected(true);
+      return;
+    }
+    setCustomSelected(false);
     const now = new Date();
     const preset = RANGE_PRESETS.find((entry) => entry.value === value);
     if (!preset?.hours) return;
@@ -149,6 +157,7 @@ const GlobalFiltersBar = () => {
   };
 
   const handleReset = () => {
+    setCustomSelected(false);
     const params = new URLSearchParams();
     params.set("from", defaults.from);
     params.set("to", defaults.to);
@@ -235,30 +244,32 @@ const GlobalFiltersBar = () => {
         />
       </div>
 
-      <div className="flex flex-col gap-1">
-        <Label>Custom</Label>
-        <div className="flex items-center gap-2">
-          <Input
-            type="datetime-local"
-            value={fromInput}
-            onChange={(event) => {
-              setFromInput(event.target.value);
-              handleCustomChange("from", event.target.value);
-            }}
-            className="min-w-[180px]"
-          />
-          <span className="text-xs text-muted-foreground">to</span>
-          <Input
-            type="datetime-local"
-            value={toInput}
-            onChange={(event) => {
-              setToInput(event.target.value);
-              handleCustomChange("to", event.target.value);
-            }}
-            className="min-w-[180px]"
-          />
+      {rangePreset === "custom" ? (
+        <div className="flex flex-col gap-1">
+          <Label>Custom</Label>
+          <div className="flex items-center gap-2">
+            <Input
+              type="datetime-local"
+              value={fromInput}
+              onChange={(event) => {
+                setFromInput(event.target.value);
+                handleCustomChange("from", event.target.value);
+              }}
+              className="min-w-[180px]"
+            />
+            <span className="text-xs text-muted-foreground">to</span>
+            <Input
+              type="datetime-local"
+              value={toInput}
+              onChange={(event) => {
+                setToInput(event.target.value);
+                handleCustomChange("to", event.target.value);
+              }}
+              className="min-w-[180px]"
+            />
+          </div>
         </div>
-      </div>
+      ) : null}
 
       <div className="ml-auto flex items-center gap-2">
         {activeFilters ? (
