@@ -65,6 +65,52 @@ const formatOffset = (minutes: number) => {
   return `${sign}${pad(hours)}:${pad(mins)}`;
 };
 
+const ISO_WITH_OFFSET =
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?(?:\.(\d{1,3}))?(Z|[+-]\d{2}:?\d{2})$/;
+
+const parseOffsetMinutes = (value: string) => {
+  if (value === "Z") return 0;
+  const sign = value.startsWith("-") ? -1 : 1;
+  const offset = value.slice(1);
+  const parts = offset.includes(":")
+    ? offset.split(":")
+    : [offset.slice(0, 2), offset.slice(2)];
+  const hours = Number(parts[0]);
+  const minutes = Number(parts[1]);
+  if (Number.isNaN(hours) || Number.isNaN(minutes)) return null;
+  return sign * (hours * 60 + minutes);
+};
+
+export const parseIsoToMs = (value?: string | null) => {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const match = ISO_WITH_OFFSET.exec(trimmed);
+  if (!match) {
+    const parsed = Date.parse(trimmed);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const hour = Number(match[4]);
+  const minute = Number(match[5]);
+  const second = match[6] ? Number(match[6]) : 0;
+  const millis = match[7] ? Number(match[7].padEnd(3, "0")) : 0;
+  if (
+    [year, month, day, hour, minute, second, millis].some((value) =>
+      Number.isNaN(value)
+    )
+  ) {
+    return null;
+  }
+  const offsetMinutes = match[8] ? parseOffsetMinutes(match[8]) : 0;
+  if (offsetMinutes === null) return null;
+  const utc = Date.UTC(year, month - 1, day, hour, minute, second, millis);
+  if (!Number.isFinite(utc)) return null;
+  return utc - offsetMinutes * 60_000;
+};
+
 export const getTimeZoneOffsetMinutes = (date: Date, timeZone: string) => {
   const parts = getTimeZoneParts(date, timeZone);
   const asUtc = Date.UTC(

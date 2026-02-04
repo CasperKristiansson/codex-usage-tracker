@@ -1,4 +1,4 @@
-import { normalizeTimeZone, toZonedIso } from "@/lib/timezone";
+import { normalizeTimeZone, parseIsoToMs, toZonedIso } from "@/lib/timezone";
 
 export type BucketOption = "auto" | "hour" | "day";
 
@@ -16,11 +16,7 @@ export const DEFAULT_TOP_N = 10;
 export const DEFAULT_BUCKET: BucketOption = "auto";
 export const DEFAULT_RANGE_DAYS = 30;
 
-const isValidDateValue = (value: string | null) => {
-  if (!value) return false;
-  const ts = Date.parse(value);
-  return Number.isFinite(ts);
-};
+const isValidDateValue = (value: string | null) => parseIsoToMs(value) !== null;
 
 const splitCsv = (value: string | null) =>
   (value ?? "")

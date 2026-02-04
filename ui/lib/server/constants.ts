@@ -1,4 +1,4 @@
-export const DEFAULT_RANGE_DAYS = 14;
+export const DEFAULT_RANGE_DAYS = 30;
 export const MAX_TOP_N = 25;
 export const MIN_TOP_N = 1;
 export const MAX_BUCKETS = 1000;

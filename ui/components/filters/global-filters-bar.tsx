@@ -19,6 +19,7 @@ import { useSettings } from "@/lib/hooks/use-settings";
 import {
   formatDateTimeInput,
   parseDateTimeInput,
+  parseIsoToMs,
   toZonedIso
 } from "@/lib/timezone";
 import { asRoute } from "@/lib/utils";
@@ -44,9 +45,9 @@ type FilterOptions = {
 };
 
 const inferPreset = (from: string, to: string) => {
-  const start = new Date(from).getTime();
-  const end = new Date(to).getTime();
-  if (!start || !end || end <= start) return "custom";
+  const start = parseIsoToMs(from);
+  const end = parseIsoToMs(to);
+  if (start === null || end === null || end <= start) return "custom";
   const diffHours = Math.round((end - start) / (1000 * 60 * 60));
   const match = RANGE_PRESETS.find(
     (preset) => preset.hours && Math.abs(diffHours - preset.hours) <= 2

@@ -1,5 +1,23 @@
 # Codex Usage Tracker
 
+[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![Node.js](https://img.shields.io/badge/Node.js-20%2B-339933?style=for-the-badge&logo=node.js&logoColor=white)](https://nodejs.org/)
+[![Next.js](https://img.shields.io/badge/Next.js-16-000000?style=for-the-badge&logo=next.js&logoColor=white)](https://nextjs.org/)
+[![React](https://img.shields.io/badge/React-19-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://react.dev/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![SQLite](https://img.shields.io/badge/SQLite-Local-003B57?style=for-the-badge&logo=sqlite&logoColor=white)](https://www.sqlite.org/)
+[![pnpm](https://img.shields.io/badge/pnpm-package%20manager-F69220?style=for-the-badge&logo=pnpm&logoColor=white)](https://pnpm.io/)
+[![Playwright](https://img.shields.io/badge/Playwright-E2E-45ba4b?style=for-the-badge&logo=playwright&logoColor=white)](https://playwright.dev/)
+[![Tailwind CSS](https://img.shields.io/badge/Tailwind%20CSS-3-06B6D4?style=for-the-badge&logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
+[![ESLint](https://img.shields.io/badge/ESLint-9-4B32C3?style=for-the-badge&logo=eslint&logoColor=white)](https://eslint.org/)
+
+[![CLI](https://img.shields.io/badge/CLI-codex--track-2F2F2F?style=for-the-badge)](#overview)
+[![Local-first](https://img.shields.io/badge/Local--First-Data-2E7D32?style=for-the-badge)](#overview)
+[![JSONL](https://img.shields.io/badge/Ingestion-JSONL-3949AB?style=for-the-badge)](#data-sources-ingestion-paths)
+[![Dashboard](https://img.shields.io/badge/Dashboard-Next.js-000000?style=for-the-badge)](#overview)
+[![macOS](https://img.shields.io/badge/macOS-supported-000000?style=for-the-badge&logo=apple&logoColor=white)](#configuration)
+[![Linux](https://img.shields.io/badge/Linux-supported-FCC624?style=for-the-badge&logo=linux&logoColor=black)](#configuration)
+
 ![Codex Usage Tracker overview](readme-hero.png)
 
 Codex Usage Tracker is a local-first tracker for OpenAI Codex CLI usage. It ingests Codex rollout JSONL files and stores token usage plus metadata in SQLite for reporting, exporting, and a local dashboard.
