@@ -118,4 +118,16 @@ body {
   .card-footer {
     @apply px-[var(--panel-footer-padding-x)] py-[var(--panel-footer-padding-y)];
   }
+  .panel-expand-modal .panel-expand-chart .h-48 {
+    height: 20rem !important;
+  }
+  .panel-expand-modal .panel-expand-chart .h-56 {
+    height: 24rem !important;
+  }
+  .panel-expand-modal .panel-expand-chart .h-60 {
+    height: 26rem !important;
+  }
+  .panel-expand-modal .panel-expand-chart .h-72 {
+    height: 30rem !important;
+  }
 }

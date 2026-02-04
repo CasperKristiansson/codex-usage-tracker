@@ -1,11 +1,12 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Maximize2, X } from "lucide-react";
 
 import { ExportMenu } from "@/components/state/export-menu";
 import { Button } from "@/components/ui/button";
+import { normalizeExportRows } from "@/lib/export";
 import { cn } from "@/lib/utils";
 
 export type PanelExpandModalProps = {
@@ -32,6 +33,16 @@ const PanelExpandModal = ({
   className
 }: PanelExpandModalProps) => {
   const [copied, setCopied] = useState(false);
+  const rows = useMemo(() => normalizeExportRows(exportData), [exportData]);
+  const maxRows = 50;
+  const visibleRows = rows.slice(0, maxRows);
+  const columns = useMemo(() => {
+    const keys = new Set<string>();
+    visibleRows.forEach((row) => {
+      Object.keys(row).forEach((key) => keys.add(key));
+    });
+    return Array.from(keys);
+  }, [visibleRows]);
 
   const handleCopy = async () => {
     if (!queryParams) return;
@@ -55,7 +66,7 @@ const PanelExpandModal = ({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50">
+    <div className="panel-expand-modal fixed inset-0 z-50">
       <div className="absolute inset-0 bg-black/55 backdrop-blur-sm" onClick={onClose} />
       <div
         className={cn(
@@ -95,7 +106,72 @@ const PanelExpandModal = ({
           </div>
         </div>
         <div className="flex-1 overflow-auto px-5 py-4">
-          <div className="min-h-[360px]">{children}</div>
+          <div className="flex flex-col gap-4">
+            <div className="panel-expand-chart min-h-[360px] h-[52vh] max-h-[640px]">
+              {children}
+            </div>
+            {exportData ? (
+              <div className="rounded-xl border border-border/20 bg-muted/20 px-4 py-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">
+                    Data rows
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {rows.length} rows
+                    {rows.length > visibleRows.length
+                      ? ` · showing ${visibleRows.length}`
+                      : ""}
+                  </div>
+                </div>
+                {columns.length ? (
+                  <div className="mt-3 max-h-80 overflow-auto rounded-lg border border-border/20 bg-card/40">
+                    <table className="min-w-full text-xs">
+                      <thead className="sticky top-0 bg-card text-muted-foreground">
+                        <tr>
+                          {columns.map((column) => (
+                            <th
+                              key={column}
+                              className="px-3 py-2 text-left font-medium"
+                            >
+                              {column}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border/20">
+                        {visibleRows.map((row, rowIndex) => (
+                          <tr key={`row-${rowIndex}`}>
+                            {columns.map((column) => {
+                              const value = row[column];
+                              const text =
+                                value === null || value === undefined
+                                  ? "—"
+                                  : typeof value === "object"
+                                    ? JSON.stringify(value)
+                                    : String(value);
+                              return (
+                                <td
+                                  key={`${rowIndex}-${column}`}
+                                  className="max-w-[220px] truncate px-3 py-2 text-muted-foreground"
+                                  title={text}
+                                >
+                                  {text}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="mt-3 text-xs text-muted-foreground">
+                    No data rows available.
+                  </div>
+                )}
+              </div>
+            ) : null}
+          </div>
         </div>
       </div>
     </div>
