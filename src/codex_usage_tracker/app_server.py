@@ -6,6 +6,7 @@ from typing import Dict, Optional, Tuple
 from zoneinfo import ZoneInfo
 
 from .config import DEFAULT_TIMEZONE
+from .hash_utils import compute_file_hash
 from .store import AppItemMetric, AppTurnMetric, UsageStore
 
 
@@ -97,14 +98,30 @@ def ingest_app_server_output(
 ) -> AppServerStats:
     stats = AppServerStats()
     stat_info = None
+    content_hash: Optional[str] = None
     if log_path.name != "-":
         try:
             stat_info = log_path.stat()
         except OSError:
             stats.errors += 1
             return stats
-        if not store.file_needs_ingest(str(log_path), stat_info.st_mtime_ns, stat_info.st_size):
-            return stats
+        if not store.file_needs_ingest(
+            str(log_path), stat_info.st_mtime_ns, stat_info.st_size
+        ):
+            try:
+                content_hash = compute_file_hash(log_path)
+            except OSError:
+                stats.errors += 1
+                return stats
+            if store.file_needs_ingest_with_hash(
+                str(log_path), stat_info.st_mtime_ns, stat_info.st_size, content_hash
+            ):
+                pass
+            else:
+                store.update_file_hash(
+                    str(log_path), stat_info.st_mtime_ns, stat_info.st_size, content_hash
+                )
+                return stats
         store.delete_app_server_events_for_source(str(log_path))
 
     turn_starts: Dict[Tuple[Optional[str], Optional[str]], datetime] = {}
@@ -386,6 +403,16 @@ def ingest_app_server_output(
         return stats
 
     if stat_info is not None:
-        store.mark_file_ingested(str(log_path), stat_info.st_mtime_ns, stat_info.st_size)
+        if content_hash is None:
+            try:
+                content_hash = compute_file_hash(log_path)
+            except OSError:
+                content_hash = None
+        store.mark_file_ingested(
+            str(log_path),
+            stat_info.st_mtime_ns,
+            stat_info.st_size,
+            content_hash=content_hash,
+        )
 
     return stats

@@ -13,6 +13,7 @@ from typing import Callable, Dict, Iterable, Optional, Tuple
 from zoneinfo import ZoneInfo
 
 from .config import DEFAULT_TIMEZONE, is_valid_timezone, resolve_timezone
+from .hash_utils import compute_file_hash
 from .platform import default_db_path, default_rollouts_dir
 from .report import (
     PricingConfig,
@@ -221,13 +222,27 @@ def ingest_rollouts(
         progress_callback(stats, 0, stats.files_total, None)
 
     for idx, (file_path, mtime_ns, size, _) in enumerate(files, start=1):
-        if not store.file_needs_ingest(str(file_path), mtime_ns, size):
-            stats.files_skipped += 1
-            _update_timing(idx, file_path)
-            progress.update(idx, stats, file_path)
-            if progress_callback is not None:
-                progress_callback(stats, idx, stats.files_total, file_path)
-            continue
+        content_hash: Optional[str] = None
+        needs_ingest = store.file_needs_ingest(str(file_path), mtime_ns, size)
+        if not needs_ingest:
+            try:
+                content_hash = compute_file_hash(file_path)
+            except OSError as exc:
+                _record_error(file_path, None, None, exc, label="Read error")
+                _update_timing(idx, file_path)
+                progress.update(idx, stats, file_path)
+                continue
+            needs_ingest = store.file_needs_ingest_with_hash(
+                str(file_path), mtime_ns, size, content_hash
+            )
+            if not needs_ingest:
+                store.update_file_hash(str(file_path), mtime_ns, size, content_hash)
+                stats.files_skipped += 1
+                _update_timing(idx, file_path)
+                progress.update(idx, stats, file_path)
+                if progress_callback is not None:
+                    progress_callback(stats, idx, stats.files_total, file_path)
+                continue
 
         context = RolloutContext()
         session_meta_saved = False
@@ -481,7 +496,19 @@ def ingest_rollouts(
                             pending_tool_calls,
                             commit=False,
                         )
-                    store.mark_file_ingested(str(file_path), mtime_ns, size, commit=False)
+                    if content_hash is None:
+                        try:
+                            content_hash = compute_file_hash(file_path)
+                        except OSError as exc:
+                            _record_error(file_path, None, None, exc, label="Read error")
+                            content_hash = None
+                    store.mark_file_ingested(
+                        str(file_path),
+                        mtime_ns,
+                        size,
+                        content_hash=content_hash,
+                        commit=False,
+                    )
         except OSError as exc:
             _record_error(file_path, None, None, exc, label="Read error")
             _update_timing(idx, file_path)
@@ -550,14 +577,29 @@ def ingest_cli_output(
     stats = CliLogStats()
     capture = StatusCapture()
     stat_info = None
+    content_hash: Optional[str] = None
     pending_events: list[UsageEvent] = []
     if log_path.name != "-":
         try:
             stat_info = log_path.stat()
         except OSError:
             return stats
-        if not store.file_needs_ingest(str(log_path), stat_info.st_mtime_ns, stat_info.st_size):
-            return stats
+        if not store.file_needs_ingest(
+            str(log_path), stat_info.st_mtime_ns, stat_info.st_size
+        ):
+            try:
+                content_hash = compute_file_hash(log_path)
+            except OSError:
+                return stats
+            if store.file_needs_ingest_with_hash(
+                str(log_path), stat_info.st_mtime_ns, stat_info.st_size, content_hash
+            ):
+                pass
+            else:
+                store.update_file_hash(
+                    str(log_path), stat_info.st_mtime_ns, stat_info.st_size, content_hash
+                )
+                return stats
         store.delete_events_for_source(str(log_path))
 
     def _handle_snapshot(snapshot) -> None:
@@ -627,7 +669,17 @@ def ingest_cli_output(
         return stats
     stats.events += store.insert_events_bulk(pending_events)
     if stat_info is not None:
-        store.mark_file_ingested(str(log_path), stat_info.st_mtime_ns, stat_info.st_size)
+        if content_hash is None:
+            try:
+                content_hash = compute_file_hash(log_path)
+            except OSError:
+                content_hash = None
+        store.mark_file_ingested(
+            str(log_path),
+            stat_info.st_mtime_ns,
+            stat_info.st_size,
+            content_hash=content_hash,
+        )
     return stats
 
 

@@ -13,7 +13,7 @@
 - [x] Show an ingest health panel with error samples, skipped files, last ingested range, and cost coverage.
 
 ## Ingestion and Reliability
-- [ ] Use hash-based ingestion tracking in addition to mtime/size to detect rewritten files.
+- [x] Use hash-based ingestion tracking in addition to mtime/size to detect rewritten files.
 - [ ] Add a watch/daemon mode to auto-ingest new rollout files.
 - [ ] Remove ETA from ingest output so it shows progress only.
 

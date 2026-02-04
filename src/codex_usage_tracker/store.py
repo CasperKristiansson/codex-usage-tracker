@@ -201,7 +201,8 @@ class UsageStore:
                 path TEXT PRIMARY KEY,
                 mtime_ns INTEGER NOT NULL,
                 size INTEGER NOT NULL,
-                last_ingested_at TEXT NOT NULL
+                last_ingested_at TEXT NOT NULL,
+                content_hash TEXT
             )
             """
         )
@@ -585,8 +586,21 @@ class UsageStore:
             ("ingest_version", str(INGEST_VERSION)),
         )
         self._ensure_event_columns()
+        self._ensure_ingestion_columns()
         self._ensure_schema_version()
         self.conn.commit()
+
+    def _ensure_ingestion_columns(self) -> None:
+        columns = self.conn.execute("PRAGMA table_info(ingestion_files)").fetchall()
+        existing = {row["name"] for row in columns}
+        additions = {
+            "content_hash": "TEXT",
+        }
+        for column, ddl in additions.items():
+            if column not in existing:
+                self.conn.execute(
+                    f"ALTER TABLE ingestion_files ADD COLUMN {column} {ddl}"
+                )
 
     def _ensure_event_columns(self) -> None:
         columns = self.conn.execute("PRAGMA table_info(events)").fetchall()
@@ -1468,33 +1482,63 @@ class UsageStore:
         self.conn.commit()
 
     def file_needs_ingest(self, path: str, mtime_ns: int, size: int) -> bool:
-        cur = self.conn.execute(
-            "SELECT mtime_ns, size FROM ingestion_files WHERE path = ?",
+        return self.file_needs_ingest_with_hash(path, mtime_ns, size, None)
+
+    def file_needs_ingest_with_hash(
+        self, path: str, mtime_ns: int, size: int, content_hash: Optional[str]
+    ) -> bool:
+        row = self.conn.execute(
+            "SELECT mtime_ns, size, content_hash FROM ingestion_files WHERE path = ?",
             (path,),
-        )
-        row = cur.fetchone()
+        ).fetchone()
         if row is None:
             return True
-        return row["mtime_ns"] != mtime_ns or row["size"] != size
+        if row["mtime_ns"] != mtime_ns or row["size"] != size:
+            return True
+        if content_hash is None:
+            return False
+        stored_hash = row["content_hash"]
+        return stored_hash is not None and stored_hash != content_hash
 
     def mark_file_ingested(
         self,
         path: str,
         mtime_ns: int,
         size: int,
+        content_hash: Optional[str] = None,
         commit: bool = True,
     ) -> None:
         now = datetime.now().isoformat()
         self.conn.execute(
             """
-            INSERT INTO ingestion_files (path, mtime_ns, size, last_ingested_at)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO ingestion_files (path, mtime_ns, size, last_ingested_at, content_hash)
+            VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(path) DO UPDATE SET
                 mtime_ns = excluded.mtime_ns,
                 size = excluded.size,
-                last_ingested_at = excluded.last_ingested_at
+                last_ingested_at = excluded.last_ingested_at,
+                content_hash = excluded.content_hash
             """,
-            (path, mtime_ns, size, now),
+            (path, mtime_ns, size, now, content_hash),
+        )
+        if commit:
+            self.conn.commit()
+
+    def update_file_hash(
+        self,
+        path: str,
+        mtime_ns: int,
+        size: int,
+        content_hash: str,
+        commit: bool = True,
+    ) -> None:
+        self.conn.execute(
+            """
+            UPDATE ingestion_files
+            SET content_hash = ?, mtime_ns = ?, size = ?
+            WHERE path = ?
+            """,
+            (content_hash, mtime_ns, size, path),
         )
         if commit:
             self.conn.commit()
