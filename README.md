@@ -26,38 +26,6 @@ CODEX_USAGE_BIN_DIR=/path/to/bin \
 ./scripts/install.sh
 ```
 
-## Install (From Source)
-
-Use this when developing locally without the bundled installer.
-
-### macOS / Linux setup
-
-```bash
-python -m venv .venv
-. .venv/bin/activate
-python -m pip install -U pip
-python -m pip install -e .
-```
-
-### UI dev server
-
-```bash
-cd ui
-pnpm install
-pnpm dev
-```
-
-Then run `codex-track web --no-open` and open the local URL printed in the terminal.
-
-### Troubleshooting install
-
-Common fixes if install/build fails:
-
-* **Python deps fail:** upgrade pip (`python -m pip install -U pip`) and retry.
-* **`better-sqlite3` build fails (UI):** use Node 20 or 22, then rerun `./scripts/install.sh` or `pnpm install` in `ui/`.
-* **macOS toolchain:** install Xcode Command Line Tools: `xcode-select --install`.
-* **`pnpm` missing:** install pnpm (`corepack enable && corepack prepare pnpm@latest --activate`) or via your package manager.
-
 ## Overview
 
 * **Primary goal:** Track and summarize Codex CLI token usage locally.
@@ -197,12 +165,6 @@ SQLite tables include:
 * `app_items` (timings + command/tool metadata from app-server item events)
 * `weekly_quota_estimates` (derived weekly quota estimates)
 
-### Privacy note: documentation conflict
-
-Some documentation claims **“no prompt/response content is stored,”** but the actual data model includes `content_messages` and `tool_calls`, which store **message text** and **tool call inputs/outputs** from rollouts.
-
-If you are operating under a “no content stored” assumption, treat this as a **privacy-impacting discrepancy** and review how/where you run ingestion and where the resulting SQLite DB is stored and backed up.
-
 ### Privacy controls
 
 If you want to avoid storing prompt/response content:
@@ -288,29 +250,6 @@ Example:
 
 The dashboard Settings page lets you edit pricing overrides and the currency label without touching the config file.
 
-## Development
-
-Run tests:
-
-```bash
-python -m unittest discover -s tests
-```
-
-## Packaging (local, macOS)
-
-Build a self-contained `dist/` bundle (UI standalone + backend sources) that runs without installing `pnpm` deps or the Python package:
-
-```bash
-./scripts/package.sh
-```
-
-Then run the packaged CLI:
-
-```bash
-./dist/codex-track web
-```
-
 ## Notes
 
 * OS support is documented for **macOS** and **Linux** default DB paths only; a Windows default path is not specified here.
-* The “no prompt/response content stored” claim conflicts with the presence of `content_messages` and `tool_calls`. If this matters for your environment, validate the current behavior by inspecting the SQLite DB contents after ingestion.
