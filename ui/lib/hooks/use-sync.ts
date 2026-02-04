@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { Filters } from "@/lib/filters";
 import { useEndpoint } from "@/lib/hooks/use-endpoint";
@@ -54,6 +54,7 @@ export const useSync = (filters: Filters) => {
   });
   const [startError, setStartError] = useState<string | null>(null);
   const [isStarting, setIsStarting] = useState(false);
+  const handledSyncIdRef = useRef<string | null>(null);
 
   const startSync = useCallback(async () => {
     setIsStarting(true);
@@ -79,6 +80,7 @@ export const useSync = (filters: Filters) => {
       if (!payload.sync_id) {
         throw new Error("Sync ID missing from response");
       }
+      handledSyncIdRef.current = null;
       setSyncId(payload.sync_id);
       progress.refetch();
       status.refetch();
@@ -89,17 +91,41 @@ export const useSync = (filters: Filters) => {
     }
   }, [filters.from, filters.to, progress, status, settings.dbPath]);
 
-  const isRunning = progress.data?.status === "running";
+  const statusValue = progress.data?.status;
+  const isTerminal = statusValue === "completed" || statusValue === "failed";
+  const isRunning = Boolean(syncId) && !isTerminal;
 
-  usePolling(() => progress.refetch(), 2_000, Boolean(syncId) && isRunning);
+  const pollIntervalMs = 10_000;
+  const lastPollRef = useRef(0);
+
+  usePolling(
+    () => {
+      const now = Date.now();
+      if (now - lastPollRef.current < pollIntervalMs - 250) return;
+      lastPollRef.current = now;
+      progress.refetch();
+    },
+    pollIntervalMs,
+    Boolean(syncId) && !isTerminal
+  );
 
   useEffect(() => {
-    if (!progress.data) return;
-    if (progress.data.status === "completed" || progress.data.status === "failed") {
+    if (!syncId || statusValue !== "unknown") return;
+    const id = window.setTimeout(() => {
       setSyncId(null);
       status.refetch();
-    }
-  }, [progress.data, status]);
+    }, 15_000);
+    return () => window.clearTimeout(id);
+  }, [syncId, statusValue, status.refetch]);
+
+  useEffect(() => {
+    if (!syncId) return;
+    if (statusValue !== "completed" && statusValue !== "failed") return;
+    if (handledSyncIdRef.current === syncId) return;
+    handledSyncIdRef.current = syncId;
+    setSyncId(null);
+    status.refetch();
+  }, [syncId, statusValue, status.refetch]);
 
   return {
     status,
