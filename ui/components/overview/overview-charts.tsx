@@ -62,6 +62,17 @@ export type CostTimeseries = {
   }>;
 };
 
+export type CacheEffectivenessTimeseries = {
+  bucket: "hour" | "day";
+  rows: Array<{
+    bucket: string;
+    input_tokens?: number;
+    cached_input_tokens?: number;
+    cache_share?: number | null;
+    estimated_savings?: number | null;
+  }>;
+};
+
 export type ModelShareTimeseries = {
   bucket: "hour" | "day";
   series: Record<string, Array<{ bucket: string; value: number }>>;
@@ -542,6 +553,127 @@ export const TokenMixChart = ({
               />
             ) : null}
           </AreaChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+};
+
+export const CacheEffectivenessChart = ({
+  data,
+  currencyLabel = "$",
+  showSavings = true
+}: {
+  data: CacheEffectivenessTimeseries;
+  currencyLabel?: string;
+  showSavings?: boolean;
+}) => {
+  const { settings } = useSettings();
+  const timeZone = settings.timezone;
+  const chartData = useMemo(() => {
+    return data.rows.map((row) => {
+      const inputTokens = safeNumber(row.input_tokens);
+      const cachedTokens = safeNumber(row.cached_input_tokens);
+      const totalInput = inputTokens + cachedTokens;
+      const cacheShare =
+        row.cache_share ?? (totalInput ? (cachedTokens / totalInput) * 100 : 0);
+      return {
+        bucket: row.bucket,
+        cache_share: cacheShare,
+        estimated_savings: safeNumber(row.estimated_savings)
+      };
+    });
+  }, [data.rows]);
+
+  return (
+    <div className="space-y-3">
+      <LegendInline
+        items={[
+          { label: "Cache share", color: "#22D3EE" },
+          showSavings ? { label: "Estimated savings", color: "#34D399" } : null
+        ].filter(Boolean) as Array<{ label: string; color: string }>}
+      />
+      <div className="h-60 w-full">
+        <ResponsiveContainer>
+          <LineChart data={chartData} margin={{ left: 8, right: 16, top: 8 }}>
+            <defs>
+              <linearGradient id="savingsFill" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="#34D399" stopOpacity={0.35} />
+                <stop offset="95%" stopColor="#34D399" stopOpacity={0.05} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid stroke="hsl(var(--border) / 0.2)" vertical={false} />
+            <XAxis
+              dataKey="bucket"
+              tickFormatter={(value) =>
+                formatBucketLabel(String(value), data.bucket, timeZone)
+              }
+              tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
+              axisLine={false}
+              tickLine={false}
+            />
+            <YAxis
+              yAxisId="left"
+              tickFormatter={(value) => formatPercent(Number(value) / 100)}
+              tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
+              axisLine={false}
+              tickLine={false}
+              width={52}
+              domain={[0, 100]}
+            />
+            {showSavings ? (
+              <YAxis
+                yAxisId="right"
+                orientation="right"
+                tickFormatter={(value) =>
+                  formatCurrency(Number(value), true, currencyLabel)
+                }
+                tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
+                axisLine={false}
+                tickLine={false}
+                width={64}
+              />
+            ) : null}
+            <Tooltip
+              {...TOOLTIP_STYLE}
+              content={
+                <ChartTooltip
+                  labelFormatter={(value) =>
+                    formatBucketLabel(String(value), data.bucket, timeZone)
+                  }
+                  valueFormatter={(value, name) => {
+                    if (name === "Cache share") {
+                      return formatPercent(Number(value) / 100);
+                    }
+                    if (name === "Estimated savings") {
+                      return formatCurrency(Number(value), false, currencyLabel);
+                    }
+                    return formatCompactNumber(Number(value));
+                  }}
+                />
+              }
+            />
+            <Line
+              yAxisId="left"
+              type="monotone"
+              dataKey="cache_share"
+              name="Cache share"
+              stroke="#22D3EE"
+              strokeWidth={2}
+              dot={false}
+            />
+            {showSavings ? (
+              <Area
+                yAxisId="right"
+                type="monotone"
+                dataKey="estimated_savings"
+                name="Estimated savings"
+                stroke="#34D399"
+                fill="url(#savingsFill)"
+                strokeWidth={2}
+              />
+            ) : null}
+          </LineChart>
         </ResponsiveContainer>
       </div>
     </div>

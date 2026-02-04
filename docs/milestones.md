@@ -7,7 +7,7 @@
 - [x] Implement range comparisons (current range vs previous range with deltas).
 - [x] Add session tagging/annotations to explain spikes and events.
 - [x] Add per-repo and per-branch breakdowns using stored git metadata.
-- [ ] Add cache effectiveness insights (trends and estimated cache savings).
+- [x] Add cache effectiveness insights (trends and estimated cache savings).
 
 ## Alerts and Limits
 - [ ] Show an ingest health panel with error samples, skipped files, last ingested range, and cost coverage.

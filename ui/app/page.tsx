@@ -12,6 +12,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { BarList } from "@/components/charts/bar-list";
 import {
   CostChart,
+  CacheEffectivenessChart,
   ContextPressureChart,
   FrictionEventsChart,
   ModelShareChart,
@@ -20,6 +21,7 @@ import {
   ToolsCompositionChart,
   VolumeChart,
   type CostTimeseries,
+  type CacheEffectivenessTimeseries,
   type ContextPressure,
   type DangerRateTimeseries,
   type DirectoryTop,
@@ -267,6 +269,10 @@ export default function OverviewPage() {
     "/api/overview/cost_timeseries",
     filters,
     { disabled: !showCost }
+  );
+  const cacheEffectiveness = useEndpoint<CacheEffectivenessTimeseries>(
+    "/api/overview/cache_effectiveness_timeseries",
+    filters
   );
   const weeklyQuota = useEndpoint<{ row: Record<string, unknown> | null }>(
     "/api/overview/weekly_quota",
@@ -548,6 +554,32 @@ export default function OverviewPage() {
         {renderPanelState(tokenMix, "No token mix data for these filters.", (data) => (
           <TokenMixChart data={data} mode={tokenMixMode} />
         ))}
+      </CardPanel>
+
+      <CardPanel
+        title="Cache Effectiveness"
+        subtitle={
+          showCost ? "Cache share and estimated savings" : "Cache share over time"
+        }
+        exportData={cacheEffectiveness.data}
+        exportFileBase="overview-cache-effectiveness"
+        queryParams={filterQuery}
+        expandable
+        footer={
+          showCost ? undefined : "Enable cost estimates in Settings to see savings."
+        }
+      >
+        {renderPanelState(
+          cacheEffectiveness,
+          "No cache data for these filters.",
+          (data) => (
+            <CacheEffectivenessChart
+              data={data}
+              currencyLabel={currencyLabel}
+              showSavings={showCost}
+            />
+          )
+        )}
       </CardPanel>
 
       {showCost ? (
