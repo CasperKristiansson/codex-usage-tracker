@@ -3,6 +3,7 @@ import { NextRequest } from "next/server";
 import { getDb } from "@/lib/server/db";
 import { parseFilters } from "@/lib/server/filters";
 import { errorResponse, jsonResponse } from "@/lib/server/response";
+import { parseIsoToMs } from "@/lib/timezone";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,11 +24,17 @@ export const GET = (request: NextRequest) => {
 
     const ingestedFrom = ingested?.min_ts ?? null;
     const ingestedTo = ingested?.max_ts ?? null;
+    const fromMs = parseIsoToMs(filters.from);
+    const toMs = parseIsoToMs(filters.to);
+    const ingestedFromMs = parseIsoToMs(ingestedFrom);
+    const ingestedToMs = parseIsoToMs(ingestedTo);
     const isMissing =
-      !ingestedFrom ||
-      !ingestedTo ||
-      filters.from < ingestedFrom ||
-      filters.to > ingestedTo;
+      !ingestedFromMs ||
+      !ingestedToMs ||
+      !fromMs ||
+      !toMs ||
+      fromMs < ingestedFromMs ||
+      toMs > ingestedToMs;
 
     return jsonResponse({
       last_ingested_at: lastIngested?.last_ingested_at ?? null,

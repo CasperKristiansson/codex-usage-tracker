@@ -85,13 +85,13 @@ const TagInput = ({
         />
       </div>
       {open && suggestions.length ? (
-        <div className="absolute z-20 mt-2 w-full rounded-lg border border-border/30 bg-popover p-1 shadow-lg">
+        <div className="absolute z-20 mt-2 w-full min-w-[280px] max-w-[90vw] rounded-lg border border-border/30 bg-popover p-1 shadow-lg">
           {suggestions.map((option) => (
             <button
               key={option}
               type="button"
               onClick={() => commitValues(option)}
-              className="w-full rounded-md px-3 py-2 text-left text-xs text-foreground transition hover:bg-muted/40"
+              className="w-full whitespace-normal break-all rounded-md px-3 py-2 text-left text-xs text-foreground transition hover:bg-muted/40"
             >
               {option}
             </button>

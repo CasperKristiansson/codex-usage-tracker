@@ -7,8 +7,10 @@ from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from .cli import IngestStats, ingest_rollouts
+from .config import resolve_timezone
 from .platform import default_db_path, default_rollouts_dir
 from .report import parse_datetime, to_local
 from .store import UsageStore
@@ -36,6 +38,7 @@ def _progress_payload(
 def run_sync(
     db_path: Path,
     rollouts_path: Path,
+    tz: ZoneInfo,
     start: Optional[datetime],
     end: Optional[datetime],
     progress_path: Path,
@@ -51,7 +54,14 @@ def run_sync(
 
     try:
         _write_progress(progress_path, _progress_payload(sync_id, "running", None))
-        latest_stats = ingest_rollouts(rollouts_path, store, start, end, _callback)
+        latest_stats = ingest_rollouts(
+            rollouts_path,
+            store,
+            start,
+            end,
+            tz,
+            progress_callback=_callback,
+        )
         _write_progress(
             progress_path, _progress_payload(sync_id, "completed", latest_stats)
         )
@@ -77,10 +87,19 @@ def main() -> int:
 
     db_path = args.db if args.db else default_db_path()
     rollouts_path = args.rollouts if args.rollouts else default_rollouts_dir()
-    start = to_local(parse_datetime(args.from_date)) if args.from_date else None
-    end = to_local(parse_datetime(args.to_date)) if args.to_date else None
+    tz = resolve_timezone(db_path)
+    start = to_local(parse_datetime(args.from_date), tz) if args.from_date else None
+    end = to_local(parse_datetime(args.to_date), tz) if args.to_date else None
 
-    return run_sync(db_path, rollouts_path, start, end, args.progress_file, args.sync_id)
+    return run_sync(
+        db_path,
+        rollouts_path,
+        tz,
+        start,
+        end,
+        args.progress_file,
+        args.sync_id,
+    )
 
 
 if __name__ == "__main__":

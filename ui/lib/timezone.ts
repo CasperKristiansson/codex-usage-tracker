@@ -58,10 +58,11 @@ const getTimeZoneParts = (date: Date, timeZone: string) => {
 const pad = (value: number) => String(value).padStart(2, "0");
 
 const formatOffset = (minutes: number) => {
-  const sign = minutes >= 0 ? "+" : "-";
-  const abs = Math.abs(minutes);
+  const rounded = Math.round(minutes);
+  const sign = rounded >= 0 ? "+" : "-";
+  const abs = Math.abs(rounded);
   const hours = Math.floor(abs / 60);
-  const mins = Math.round(abs % 60);
+  const mins = abs % 60;
   return `${sign}${pad(hours)}:${pad(mins)}`;
 };
 
@@ -77,7 +78,14 @@ const parseOffsetMinutes = (value: string) => {
     : [offset.slice(0, 2), offset.slice(2)];
   const hours = Number(parts[0]);
   const minutes = Number(parts[1]);
-  if (Number.isNaN(hours) || Number.isNaN(minutes)) return null;
+  if (
+    Number.isNaN(hours) ||
+    Number.isNaN(minutes) ||
+    minutes < 0 ||
+    minutes >= 60
+  ) {
+    return null;
+  }
   return sign * (hours * 60 + minutes);
 };
 
