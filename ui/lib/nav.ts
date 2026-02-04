@@ -2,6 +2,7 @@ import {
   BarChart3,
   Bolt,
   Database,
+  HardDrive,
   Flame,
   LayoutGrid,
   Settings
@@ -12,6 +13,7 @@ export const navItems = [
   { href: "/context", label: "Context and Limits", icon: Bolt },
   { href: "/tools", label: "Tools", icon: BarChart3 },
   { href: "/hotspots", label: "Hotspots", icon: Flame },
+  { href: "/db", label: "DB Insights", icon: HardDrive },
   { href: "/sessions", label: "Sessions and Debug", icon: Database }
 ];
 
@@ -26,6 +28,7 @@ export const pageTitles: Record<string, string> = {
   "/context": "Context and Limits",
   "/tools": "Tools",
   "/hotspots": "Hotspots",
+  "/db": "DB Insights",
   "/sessions": "Sessions and Debug",
   "/settings": "Settings"
 };

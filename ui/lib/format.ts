@@ -41,3 +41,16 @@ export const formatCurrency = (
   if (label.endsWith(" ")) return `${label}${formatted}`;
   return `${label} ${formatted}`;
 };
+
+export const formatBytes = (value: number | null | undefined) => {
+  if (value === null || value === undefined || Number.isNaN(value)) return "—";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let size = Math.max(0, value);
+  let unitIndex = 0;
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+  const precision = size >= 100 || unitIndex === 0 ? 0 : size >= 10 ? 1 : 2;
+  return `${size.toFixed(precision)} ${units[unitIndex]}`;
+};
