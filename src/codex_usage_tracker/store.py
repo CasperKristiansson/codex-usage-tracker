@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Optional
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 INGEST_VERSION = 5
 
 
@@ -265,6 +265,37 @@ class UsageStore:
                 captured_at_utc TEXT,
                 rollout_source TEXT
             )
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS session_annotations (
+                session_id TEXT PRIMARY KEY,
+                note TEXT,
+                updated_at TEXT
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS session_tags (
+                session_id TEXT NOT NULL,
+                tag TEXT NOT NULL,
+                updated_at TEXT,
+                PRIMARY KEY (session_id, tag)
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS session_tags_session_idx
+            ON session_tags(session_id)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS session_tags_tag_idx
+            ON session_tags(tag)
             """
         )
         cur.execute(

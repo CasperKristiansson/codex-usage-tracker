@@ -4,6 +4,7 @@ import { getDb } from "@/lib/server/db";
 import { DEFAULT_PAGE, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from "@/lib/server/constants";
 import { parseFilters } from "@/lib/server/filters";
 import { applyEventType, buildWhere } from "@/lib/server/query";
+import { ensureSessionAnnotationTables } from "@/lib/server/session-annotations";
 import { errorResponse, jsonResponse } from "@/lib/server/response";
 
 export const runtime = "nodejs";
@@ -16,6 +17,7 @@ export const GET = (request: NextRequest) => {
   try {
     const filters = parseFilters(request.nextUrl.searchParams);
     const db = getDb(request.nextUrl.searchParams);
+    ensureSessionAnnotationTables(db);
 
     const pageRaw = Number(request.nextUrl.searchParams.get("page"));
     const sizeRaw = Number(request.nextUrl.searchParams.get("pageSize"));
@@ -83,7 +85,12 @@ export const GET = (request: NextRequest) => {
     const rows = db
       .prepare(
         `SELECT e.session_id, s.cwd, s.cli_version, MAX(e.captured_at_utc) as last_seen,
-          SUM(e.total_tokens) as total_tokens, COUNT(*) as turns
+          SUM(e.total_tokens) as total_tokens, COUNT(*) as turns,
+          (
+            SELECT group_concat(tag, ',')
+            FROM session_tags st
+            WHERE st.session_id = e.session_id
+          ) as tags
         FROM events e
         LEFT JOIN sessions s ON s.session_id = e.session_id
         ${whereSql}
@@ -93,7 +100,14 @@ export const GET = (request: NextRequest) => {
         ORDER BY total_tokens DESC
         LIMIT ${pageSize} OFFSET ${offset}`
       )
-      .all([...whereParams, ...havingParams]);
+      .all([...whereParams, ...havingParams])
+      .map((row: Record<string, unknown>) => {
+        const tags = typeof row.tags === "string" ? row.tags.split(",") : [];
+        return {
+          ...row,
+          tags: tags.map((tag) => tag.trim()).filter(Boolean)
+        };
+      });
 
     return jsonResponse({
       page,

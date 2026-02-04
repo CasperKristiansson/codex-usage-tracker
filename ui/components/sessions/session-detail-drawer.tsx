@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { BarList } from "@/components/charts/bar-list";
 import { EmptyState } from "@/components/state/empty-state";
@@ -9,6 +9,7 @@ import { SideDrawer } from "@/components/state/side-drawer";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { TagInput } from "@/components/ui/tag-input";
 import { buildFilterQuery } from "@/lib/api";
 import { SERIES_COLORS } from "@/lib/charts";
 import { formatCompactNumber } from "@/lib/format";
@@ -22,6 +23,13 @@ export type SessionDetail = {
   totals?: { total_tokens?: number; turns?: number } | null;
   top_models?: Array<{ model: string; total_tokens: number }>;
   top_directories?: Array<{ directory: string; total_tokens: number }>;
+};
+
+type SessionAnnotations = {
+  session_id: string;
+  tags: string[];
+  note: string;
+  updated_at: string | null;
 };
 
 type ToolCallSample = {
@@ -63,6 +71,15 @@ export const SessionDetailDrawer = ({
   const { settings } = useSettings();
   const detailKey = sessionId ? `/api/sessions/detail?session_id=${sessionId}` : null;
   const detail = useApi<SessionDetail>(detailKey, { disabled: !sessionId });
+  const annotationsKey = sessionId
+    ? `/api/sessions/annotations?session_id=${sessionId}`
+    : null;
+  const annotations = useApi<SessionAnnotations>(annotationsKey, {
+    disabled: !sessionId
+  });
+  const tagOptions = useApi<{ tags: string[] }>("/api/sessions/tags", {
+    ttl: 60_000
+  });
 
   const [drawerState, setDrawerState] = useState(() => ({
     sessionId: sessionId ?? null,
@@ -83,6 +100,39 @@ export const SessionDetailDrawer = ({
       ...patch
     });
   };
+
+  const [annotationState, setAnnotationState] = useState(() => ({
+    tags: [] as string[],
+    note: "",
+    baselineTags: [] as string[],
+    baselineNote: "",
+    status: "idle" as "idle" | "saving" | "saved" | "error",
+    error: ""
+  }));
+
+  useEffect(() => {
+    if (!sessionId) {
+      setAnnotationState({
+        tags: [],
+        note: "",
+        baselineTags: [],
+        baselineNote: "",
+        status: "idle",
+        error: ""
+      });
+      return;
+    }
+    if (!annotations.data) return;
+    setAnnotationState((prev) => ({
+      ...prev,
+      tags: annotations.data?.tags ?? [],
+      note: annotations.data?.note ?? "",
+      baselineTags: annotations.data?.tags ?? [],
+      baselineNote: annotations.data?.note ?? "",
+      status: "idle",
+      error: ""
+    }));
+  }, [annotations.data?.updated_at, annotations.data?.session_id, sessionId]);
 
   const kpis = useMemo(() => {
     const totalTokens = detail.data?.totals?.total_tokens ?? null;
@@ -115,6 +165,68 @@ export const SessionDetailDrawer = ({
   const baseParams = useMemo(() => {
     return new URLSearchParams(buildFilterQuery(filters));
   }, [filters]);
+
+  const annotationDirty = useMemo(() => {
+    const normalize = (values: string[]) => values.slice().sort().join("|");
+    return (
+      normalize(annotationState.tags) !== normalize(annotationState.baselineTags) ||
+      annotationState.note.trim() !== annotationState.baselineNote.trim()
+    );
+  }, [
+    annotationState.tags,
+    annotationState.note,
+    annotationState.baselineTags,
+    annotationState.baselineNote
+  ]);
+
+  const saveAnnotations = async () => {
+    if (!sessionId) return;
+    setAnnotationState((prev) => ({ ...prev, status: "saving", error: "" }));
+    try {
+      const params = new URLSearchParams({ session_id: sessionId });
+      if (settings.dbPath?.trim()) {
+        params.set("db", settings.dbPath.trim());
+      }
+      const response = await fetch(`/api/sessions/annotations?${params.toString()}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          session_id: sessionId,
+          tags: annotationState.tags,
+          note: annotationState.note
+        })
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || "Failed to save annotations");
+      }
+
+      const data = (await response.json()) as SessionAnnotations;
+      setAnnotationState((prev) => ({
+        ...prev,
+        tags: data.tags ?? [],
+        note: data.note ?? "",
+        baselineTags: data.tags ?? [],
+        baselineNote: data.note ?? "",
+        status: "saved",
+        error: ""
+      }));
+      annotations.refetch();
+      tagOptions.refetch();
+      window.setTimeout(() => {
+        setAnnotationState((prev) =>
+          prev.status === "saved" ? { ...prev, status: "idle" } : prev
+        );
+      }, 2000);
+    } catch (error) {
+      setAnnotationState((prev) => ({
+        ...prev,
+        status: "error",
+        error: error instanceof Error ? error.message : "Failed to save annotations"
+      }));
+    }
+  };
 
   const toolSampleKey = useMemo(() => {
     if (!sessionId || activeTab !== "debug") return null;
@@ -218,6 +330,56 @@ export const SessionDetailDrawer = ({
               ) : (
                 <div>No metadata available.</div>
               )}
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-border/20 bg-muted/20 px-3 py-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="text-xs font-semibold text-foreground">
+                Session annotations
+              </div>
+              <div className="flex items-center gap-2 text-xs">
+                {annotationState.status === "saving" ? (
+                  <span className="text-muted-foreground">Saving…</span>
+                ) : annotationState.status === "saved" ? (
+                  <span className="text-emerald-400">Saved</span>
+                ) : annotationState.status === "error" ? (
+                  <span className="text-red-400">{annotationState.error}</span>
+                ) : null}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={saveAnnotations}
+                  disabled={!annotationDirty || annotations.isLoading}
+                >
+                  Save
+                </Button>
+              </div>
+            </div>
+            <div className="mt-3 space-y-3 text-xs">
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Tags</label>
+                <TagInput
+                  value={annotationState.tags}
+                  onChange={(next) =>
+                    setAnnotationState((prev) => ({ ...prev, tags: next }))
+                  }
+                  options={tagOptions.data?.tags ?? []}
+                  placeholder="migration, incident, launch"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Note</label>
+                <textarea
+                  value={annotationState.note}
+                  onChange={(event) =>
+                    setAnnotationState((prev) => ({ ...prev, note: event.target.value }))
+                  }
+                  rows={3}
+                  placeholder="Add context about this session."
+                  className="w-full rounded-md border border-border/40 bg-background px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                />
+              </div>
             </div>
           </div>
 

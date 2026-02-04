@@ -29,6 +29,7 @@ export type SessionsList = {
     last_seen: string | null;
     total_tokens: number;
     turns: number;
+    tags?: string[];
   }>;
 };
 
@@ -365,6 +366,15 @@ export default function SessionsPage() {
                                 <span className="truncate">{row.session_id}</span>
                                 <Badge className="normal-case">Open</Badge>
                               </div>
+                              {row.tags?.length ? (
+                                <div className="mt-1 flex flex-wrap gap-1">
+                                  {row.tags.map((tag) => (
+                                    <Badge key={tag} className="normal-case">
+                                      {tag}
+                                    </Badge>
+                                  ))}
+                                </div>
+                              ) : null}
                             </td>
                             <td className="px-3 py-2 text-muted-foreground">
                               <span className="truncate">{row.cwd ?? "—"}</span>

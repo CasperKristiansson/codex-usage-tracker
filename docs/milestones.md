@@ -5,7 +5,7 @@
 - [x] Allow pricing overrides via config or UI settings, including per-model rates and a custom currency label.
 - [x] Add timezone configuration for reports and UI (CLI flag + persisted setting).
 - [x] Implement range comparisons (current range vs previous range with deltas).
-- [ ] Add session tagging/annotations to explain spikes and events.
+- [x] Add session tagging/annotations to explain spikes and events.
 - [ ] Add per-repo and per-branch breakdowns using stored git metadata.
 - [ ] Add cache effectiveness insights (trends and estimated cache savings).
 
