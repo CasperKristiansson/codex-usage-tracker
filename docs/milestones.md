@@ -15,10 +15,10 @@
 ## Ingestion and Reliability
 - [x] Use hash-based ingestion tracking in addition to mtime/size to detect rewritten files.
 - [x] Add a watch/daemon mode to auto-ingest new rollout files.
-- [ ] Remove ETA from ingest output so it shows progress only.
+- [x] Remove ETA from ingest output so it shows progress only.
 
 ## UI and UX
-- [ ] Add drill-down navigation from any chart to sessions/turns/tool calls with filters applied.
+- [x] Add drill-down navigation from any chart to sessions/turns/tool calls with filters applied.
 - [ ] Improve each chart expand modal so the graph uses more height and shows data rows below.
 - [ ] Export the current UI view (with filters) to CSV/JSON.
 - [ ] Add a DB insights view with record counts, DB file size, table sizes, and ingest metadata.

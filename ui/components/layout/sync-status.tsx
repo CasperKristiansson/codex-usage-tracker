@@ -22,18 +22,6 @@ const SyncStatus = () => {
     if (!total) return null;
     return `${parsed + skipped}/${total} files`;
   }, [progressData]);
-  const etaLabel = useMemo(() => {
-    const etaSeconds = progressData?.eta_seconds;
-    if (!etaSeconds || !Number.isFinite(etaSeconds)) return null;
-    const rounded = Math.max(0, Math.round(etaSeconds));
-    if (rounded < 60) return `${rounded}s`;
-    const minutes = Math.floor(rounded / 60);
-    const seconds = rounded % 60;
-    if (minutes < 60) return `${minutes}m ${seconds}s`;
-    const hours = Math.floor(minutes / 60);
-    const remMinutes = minutes % 60;
-    return `${hours}h ${remMinutes}m`;
-  }, [progressData]);
   const errorCount = progressData?.errors ?? 0;
   const errorSamples = useMemo(
     () => progressData?.error_samples ?? [],
@@ -42,10 +30,9 @@ const SyncStatus = () => {
   const details = useMemo(() => {
     const parts: string[] = [];
     if (progressLabel) parts.push(progressLabel);
-    if (etaLabel) parts.push(`ETA ${etaLabel}`);
     if (errorCount) parts.push(`${errorCount} errors`);
     return parts.length ? ` · ${parts.join(" · ")}` : "";
-  }, [progressLabel, etaLabel, errorCount]);
+  }, [progressLabel, errorCount]);
   const errorTitle = useMemo(() => {
     if (!errorSamples.length) return undefined;
     return errorSamples

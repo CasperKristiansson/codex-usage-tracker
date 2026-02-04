@@ -54,7 +54,6 @@ class IngestStats:
     errors: int = 0
     started_at: Optional[float] = None
     updated_at: Optional[float] = None
-    eta_seconds: Optional[float] = None
     current_file: Optional[str] = None
     error_samples: list[dict[str, object]] = field(default_factory=list)
 
@@ -175,19 +174,6 @@ def ingest_rollouts(
             stats.started_at = now_ts
         stats.updated_at = now_ts
         stats.current_file = str(file_path) if file_path else None
-        if current <= 0 or not stats.files_total:
-            stats.eta_seconds = None
-            return
-        elapsed = now_ts - stats.started_at
-        if elapsed <= 0:
-            stats.eta_seconds = None
-            return
-        rate = current / elapsed
-        if rate <= 0:
-            stats.eta_seconds = None
-            return
-        remaining = max(stats.files_total - current, 0)
-        stats.eta_seconds = remaining / rate
 
     def _record_error(
         file_path: Path,

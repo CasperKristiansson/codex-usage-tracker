@@ -27,7 +27,6 @@ export type SyncProgress = {
     events?: number;
     started_at?: number;
     updated_at?: number;
-    eta_seconds?: number;
     current_file?: string | null;
     error_samples?: Array<{
       file?: string;

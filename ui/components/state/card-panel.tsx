@@ -7,6 +7,7 @@ import { Maximize2 } from "lucide-react";
 import { ExportMenu } from "@/components/state/export-menu";
 import { PanelExpandModal } from "@/components/state/panel-expand-modal";
 import { Button } from "@/components/ui/button";
+import { DrilldownMenu } from "@/components/state/drilldown-menu";
 import { cn } from "@/lib/utils";
 
 type CardPanelProps = {
@@ -22,6 +23,7 @@ type CardPanelProps = {
   expandedContent?: ReactNode;
   expandedClassName?: string;
   queryParams?: string;
+  drilldown?: boolean;
 };
 
 const CardPanel = ({
@@ -36,12 +38,14 @@ const CardPanel = ({
   expandable = false,
   expandedContent,
   expandedClassName,
-  queryParams
+  queryParams,
+  drilldown = true
 }: CardPanelProps) => {
   const [expanded, setExpanded] = useState(false);
 
   const showExport = exportData !== undefined;
   const showExpand = expandable;
+  const showDrilldown = drilldown && queryParams !== undefined;
 
   return (
     <section className={cn("card-panel flex flex-col", className)}>
@@ -52,6 +56,7 @@ const CardPanel = ({
         </div>
         <div className="flex items-center gap-2">
           {actions}
+          {showDrilldown ? <DrilldownMenu queryParams={queryParams} /> : null}
           {showExport ? (
             <ExportMenu data={exportData} title={title} fileBase={exportFileBase} />
           ) : null}
