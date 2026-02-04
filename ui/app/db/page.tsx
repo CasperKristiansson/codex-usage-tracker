@@ -1,12 +1,15 @@
 "use client";
 
-import { useMemo, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 
 import { CardPanel } from "@/components/state/card-panel";
 import { EmptyState } from "@/components/state/empty-state";
 import { ErrorState } from "@/components/state/error-state";
 import { ViewExportMenu } from "@/components/state/view-export-menu";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { buildFilterQuery } from "@/lib/api";
 import { formatCompactNumber, formatBytes } from "@/lib/format";
 import { useApi } from "@/lib/hooks/use-api";
 import { useFilters } from "@/lib/hooks/use-filters";
@@ -45,10 +48,25 @@ export type DbInsights = {
   error?: string | null;
 };
 
+const DEFAULT_EXPORT_LIMIT = 5000;
+const MAX_EXPORT_LIMIT = 50000;
+
+const parseFilename = (header: string | null) => {
+  if (!header) return null;
+  const match = header.match(/filename=\"?([^\";]+)\"?/i);
+  return match ? match[1] : null;
+};
+
 export default function DbInsightsPage() {
   const { settings } = useSettings();
   const { filters } = useFilters();
   const insights = useApi<DbInsights>("/api/db/insights", { ttl: 60_000 });
+  const [exportDataset, setExportDataset] = useState<
+    "events" | "turns" | "tool_calls"
+  >("events");
+  const [exportLimit, setExportLimit] = useState(String(DEFAULT_EXPORT_LIMIT));
+  const [exporting, setExporting] = useState<null | "json" | "csv">(null);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   const tableSizes = insights.data?.table_sizes ?? [];
   const totalTableBytes = useMemo(
@@ -101,6 +119,61 @@ export default function DbInsightsPage() {
     }),
     [insights.data]
   );
+  const canExport = insights.data?.db.exists !== false;
+
+  const buildExportUrl = (format: "json" | "csv") => {
+    const params = new URLSearchParams(buildFilterQuery(filters));
+    params.set("dataset", exportDataset);
+    params.set("format", format);
+    const limitValue = Number(exportLimit);
+    if (Number.isFinite(limitValue) && limitValue > 0) {
+      params.set("limit", String(Math.min(limitValue, MAX_EXPORT_LIMIT)));
+    }
+    const dbPath = settings.dbPath?.trim();
+    if (dbPath) {
+      params.set("db", dbPath);
+    }
+    return `/api/db/export?${params.toString()}`;
+  };
+
+  const handleExport = async (format: "json" | "csv") => {
+    if (exporting) return;
+    setExportError(null);
+    setExporting(format);
+    try {
+      const response = await fetch(buildExportUrl(format));
+      if (!response.ok) {
+        const text = await response.text();
+        let message = `Export failed (${response.status})`;
+        try {
+          const parsed = JSON.parse(text) as { error?: string };
+          if (parsed?.error) message = parsed.error;
+        } catch {
+          if (text) message = text;
+        }
+        throw new Error(message);
+      }
+      const blob = await response.blob();
+      const header = response.headers.get("Content-Disposition");
+      const filename =
+        parseFilename(header) ??
+        `db-${exportDataset}-${new Date().toISOString().slice(0, 10)}.${format}`;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      setExportError(
+        error instanceof Error ? error.message : "Failed to export dataset."
+      );
+    } finally {
+      setExporting(null);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -322,6 +395,67 @@ export default function DbInsightsPage() {
           ),
           "h-56 w-full"
         )}
+      </CardPanel>
+
+      <CardPanel title="Data Export" subtitle="Download raw tables with filters applied">
+        <div className="space-y-3 text-xs">
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-muted-foreground">Dataset</label>
+              <select
+                value={exportDataset}
+                onChange={(event) =>
+                  setExportDataset(
+                    event.target.value as "events" | "turns" | "tool_calls"
+                  )
+                }
+                className="h-9 rounded-md border border-border/40 bg-background px-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              >
+                <option value="events">Events</option>
+                <option value="turns">Turns</option>
+                <option value="tool_calls">Tool calls</option>
+              </select>
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-muted-foreground">Row limit</label>
+              <Input
+                type="number"
+                min={1}
+                max={MAX_EXPORT_LIMIT}
+                value={exportLimit}
+                onChange={(event) => setExportLimit(event.target.value)}
+                className="w-32"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-muted-foreground">Format</label>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => handleExport("json")}
+                  disabled={!canExport || exporting !== null}
+                >
+                  {exporting === "json" ? "Exporting..." : "Export JSON"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => handleExport("csv")}
+                  disabled={!canExport || exporting !== null}
+                >
+                  {exporting === "csv" ? "Exporting..." : "Export CSV"}
+                </Button>
+              </div>
+            </div>
+          </div>
+          <div className="text-xs text-muted-foreground">
+            Uses the active time range, model, directory, and source filters. Max {MAX_EXPORT_LIMIT} rows.
+          </div>
+          {exportError ? (
+            <div className="text-xs text-rose-400">{exportError}</div>
+          ) : null}
+        </div>
       </CardPanel>
     </div>
   );

@@ -22,7 +22,7 @@
 - [x] Improve each chart expand modal so the graph uses more height and shows data rows below.
 - [x] Export the current UI view (with filters) to CSV/JSON.
 - [x] Add a DB insights view with record counts, DB file size, table sizes, and ingest metadata.
-- [ ] From the DB insights view, support exporting richer datasets (e.g., events/tool calls/turns).
+- [x] From the DB insights view, support exporting richer datasets (e.g., events/tool calls/turns).
 - [ ] Add date presets for 90 days and 180 days.
 - [ ] Fix custom range selection: only show date inputs when custom is selected, and make custom range clickable.
 - [x] Update the main README with missing information and an installation guide.
