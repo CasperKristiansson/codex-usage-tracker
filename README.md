@@ -157,6 +157,12 @@ Run on a custom port and don’t open a browser:
 codex-track web --port 3001 --no-open
 ```
 
+### 5) Watch rollouts and auto-ingest new files
+
+```bash
+codex-track watch --interval 30
+```
+
 ## CLI Reference
 
 The bundled CLI is named: **`codex-track`**
@@ -168,6 +174,7 @@ The bundled CLI is named: **`codex-track`**
 | `codex-track status`            | Print latest usage snapshot (auto-ingests rollouts)             | `--db`, `--rollouts`, `--no-content/--redact`                                                                                                                                                           |
 | `codex-track web`               | Launch local Next.js dashboard from `ui/`                       | `--db`, `--rollouts`, `--port`, `--no-open`                                                                                                                                                             |
 | `codex-track ui`                | Alias for `codex-track web`                                     | `--db`, `--rollouts`, `--port`, `--no-open`                                                                                                                                                             |
+| `codex-track watch`             | Watch rollouts and auto-ingest new files                        | `--db`, `--rollouts`, `--interval`, `--last <Nd|Nh>`, `--today`, `--from <YYYY-MM-DD or ISO>`, `--to <YYYY-MM-DD or ISO>`, `--timezone <IANA>`, `--no-content/--redact`, `--verbose`, `--strict` |
 | `codex-track purge-content`     | Remove stored content messages + tool calls                     | `--db`, `--yes`                                                                                                                                                                                         |
 | `codex-track ingest-cli`        | Parse Codex CLI logs for `/status` and final “Token usage” line | `--db`, `--log <path or ->`                                                                                                                                                                             |
 | `codex-track ingest-app-server` | Parse app-server JSON-RPC logs and write timings/metadata       | `--db`, `--log <path or ->`                                                                                                                                                                             |

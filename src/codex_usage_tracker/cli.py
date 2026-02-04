@@ -970,6 +970,34 @@ def build_parser() -> argparse.ArgumentParser:
         help="Path to the app-server JSON-RPC log (use '-' for stdin)",
     )
 
+    watch_parser = subparsers.add_parser(
+        "watch",
+        help="Watch rollouts and auto-ingest new files",
+    )
+    watch_parser.add_argument("--db", type=Path, default=None)
+    watch_parser.add_argument("--rollouts", type=Path, default=None)
+    watch_parser.add_argument(
+        "--interval",
+        type=float,
+        default=30,
+        help="Polling interval in seconds",
+    )
+    add_ingest_args(watch_parser)
+    watch_parser.add_argument("--last", type=str, default=None)
+    watch_parser.add_argument(
+        "--today",
+        action="store_true",
+        help="Use today's usage for the initial ingest (midnight to now)",
+    )
+    watch_parser.add_argument("--from", dest="from_date", type=str, default=None)
+    watch_parser.add_argument("--to", dest="to_date", type=str, default=None)
+    watch_parser.add_argument(
+        "--timezone",
+        type=str,
+        default=None,
+        help=f"Timezone for initial range (IANA name, default {DEFAULT_TIMEZONE})",
+    )
+
     clear_parser = subparsers.add_parser("clear-db", help="Delete the local usage DB")
     clear_parser.add_argument("--db", type=Path, default=None)
     clear_parser.add_argument("--yes", action="store_true")
@@ -1002,6 +1030,67 @@ def _ingest_for_range(
         strict=args.strict,
         no_content=args.no_content,
     )
+
+
+def _parse_initial_watch_range(
+    args: argparse.Namespace, tz: ZoneInfo
+) -> Tuple[Optional[datetime], Optional[datetime]]:
+    now = datetime.now(tz)
+    start = None
+    end = None
+    if args.today:
+        if args.last or args.from_date or args.to_date:
+            raise ValueError("--today cannot be combined with --last/--from/--to")
+        start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        end = now
+    elif args.last:
+        delta = parse_last(args.last)
+        start = now - delta
+        end = now
+    else:
+        if args.from_date:
+            start = to_local(parse_datetime(args.from_date), tz)
+        if args.to_date:
+            end = to_local(parse_datetime(args.to_date), tz)
+    return start, end
+
+
+def _run_watch(
+    args: argparse.Namespace,
+    store: UsageStore,
+    tz: ZoneInfo,
+    start: Optional[datetime],
+    end: Optional[datetime],
+) -> None:
+    rollouts_dir = args.rollouts if args.rollouts else default_rollouts_dir()
+    interval = max(1.0, float(args.interval))
+
+    print(
+        f"Watching {rollouts_dir} every {interval:.0f}s. Press Ctrl+C to stop."
+    )
+    last_scan_ts: Optional[float] = None
+
+    try:
+        while True:
+            scan_start = time.time()
+            ingest_rollouts(
+                rollouts_dir,
+                store,
+                start,
+                end,
+                tz,
+                verbose=args.verbose,
+                strict=args.strict,
+                no_content=args.no_content,
+            )
+
+            last_scan_ts = scan_start
+            start = datetime.fromtimestamp(last_scan_ts, tz)
+            end = None
+
+            time.sleep(interval)
+    except KeyboardInterrupt:
+        print("Stopping watch.")
 
 
 def main() -> None:
@@ -1131,6 +1220,15 @@ def main() -> None:
             f"Ingested {stats.lines} lines: {stats.turns} turns, "
             f"{stats.items} items, {stats.web_actions} web actions."
         )
+        return
+
+    if args.command == "watch":
+        try:
+            start, end = _parse_initial_watch_range(args, tz)
+        except ValueError as exc:
+            parser.error(str(exc))
+        _run_watch(args, store, tz, start, end)
+        store.close()
         return
 
     if args.command in ("ui", "web"):

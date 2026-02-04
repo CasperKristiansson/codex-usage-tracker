@@ -14,7 +14,7 @@
 
 ## Ingestion and Reliability
 - [x] Use hash-based ingestion tracking in addition to mtime/size to detect rewritten files.
-- [ ] Add a watch/daemon mode to auto-ingest new rollout files.
+- [x] Add a watch/daemon mode to auto-ingest new rollout files.
 - [ ] Remove ETA from ingest output so it shows progress only.
 
 ## UI and UX
