@@ -15,6 +15,7 @@ import { CardPanel } from "@/components/state/card-panel";
 import { EmptyState } from "@/components/state/empty-state";
 import { ErrorState } from "@/components/state/error-state";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ViewExportMenu } from "@/components/state/view-export-menu";
 import { buildFilterQuery } from "@/lib/api";
 import { isEmptyResponse } from "@/lib/data";
 import { setFilterParam } from "@/lib/filters";
@@ -90,6 +91,24 @@ export default function HotspotsPage() {
     disabled: !overlayEnabled
   });
 
+  const exportDatasets = useMemo(
+    () => ({
+      model_directory_matrix: matrix.data,
+      tokens_distribution: distribution.data,
+      overlay_distribution: overlayEnabled ? overlayDistribution.data : null,
+      top_sessions: topSessions.data,
+      overlay_model: overlayEnabled ? overlayModel : null
+    }),
+    [
+      distribution.data,
+      matrix.data,
+      overlayDistribution.data,
+      overlayEnabled,
+      overlayModel,
+      topSessions.data
+    ]
+  );
+
   const handleMatrixSelect = (model: string, directory: string, shiftKey: boolean) => {
     const params = new URLSearchParams(searchParams.toString());
     const nextModels = shiftKey
@@ -122,6 +141,9 @@ export default function HotspotsPage() {
 
   return (
     <div className="space-y-6">
+      <div className="flex items-center justify-end">
+        <ViewExportMenu title="Hotspots" filters={filters} datasets={exportDatasets} />
+      </div>
       <CardPanel
         title="Model x Directory"
         subtitle="Top token hotspots (click to filter)"

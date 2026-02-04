@@ -12,6 +12,7 @@ import { ErrorState } from "@/components/state/error-state";
 import { Input } from "@/components/ui/input";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ViewExportMenu } from "@/components/state/view-export-menu";
 import { buildFilterQuery } from "@/lib/api";
 import { isEmptyResponse } from "@/lib/data";
 import { formatCompactNumber } from "@/lib/format";
@@ -307,6 +308,16 @@ export default function SessionsPage() {
         ? "turns-list"
         : "tool-calls-list";
 
+  const exportDatasets = useMemo(
+    () => ({
+      view: activeView,
+      sessions: activeView === "sessions" ? sessions.data : null,
+      turns: activeView === "turns" ? turns.data : null,
+      tool_calls: activeView === "tool_calls" ? toolCalls.data : null
+    }),
+    [activeView, sessions.data, toolCalls.data, turns.data]
+  );
+
   const renderPanelState = <T,>(
     state: {
       data?: T;
@@ -326,6 +337,9 @@ export default function SessionsPage() {
 
   return (
     <div className="space-y-6">
+      <div className="flex items-center justify-end">
+        <ViewExportMenu title="Sessions" filters={filters} datasets={exportDatasets} />
+      </div>
       <CardPanel
         title={panelTitle}
         subtitle={panelSubtitle}

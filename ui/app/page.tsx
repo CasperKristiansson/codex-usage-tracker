@@ -39,7 +39,10 @@ import { CardPanel } from "@/components/state/card-panel";
 import { EmptyState } from "@/components/state/empty-state";
 import { ErrorState } from "@/components/state/error-state";
 import { KpiCard } from "@/components/state/kpi-card";
-import IngestHealthPanel from "@/components/state/ingest-health-panel";
+import IngestHealthPanel, {
+  type IngestHealth
+} from "@/components/state/ingest-health-panel";
+import { ViewExportMenu } from "@/components/state/view-export-menu";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SERIES_COLORS, TOKEN_MIX_COLORS } from "@/lib/charts";
@@ -275,6 +278,9 @@ export default function OverviewPage() {
     "/api/overview/cache_effectiveness_timeseries",
     filters
   );
+  const ingestHealth = useEndpoint<IngestHealth>("/api/ingest/health", filters, {
+    ttl: 30_000
+  });
   const weeklyQuota = useEndpoint<{ row: Record<string, unknown> | null }>(
     "/api/overview/weekly_quota",
     undefined,
@@ -480,8 +486,51 @@ export default function OverviewPage() {
     });
   }, [currentKpis, previousKpis, showCost, currencyLabel]);
 
+  const exportDatasets = useMemo(
+    () => ({
+      kpis: kpis.data,
+      volume: volume.data,
+      token_mix: tokenMix.data,
+      model_share: modelShare.data,
+      directory_hotspots: directoryTop.data,
+      repo_hotspots: repoTop.data,
+      branch_hotspots: branchTop.data,
+      context_pressure: contextPressure.data,
+      danger_rate: dangerRateSeries.data,
+      rate_limit: rateLimit.data,
+      tools_composition: toolsComposition.data,
+      friction_events: frictionEvents.data,
+      cost_timeseries: showCost ? costTimeseries.data : null,
+      cache_effectiveness: cacheEffectiveness.data,
+      weekly_quota: showCost ? weeklyQuota.data : null,
+      ingest_health: ingestHealth.data
+    }),
+    [
+      cacheEffectiveness.data,
+      contextPressure.data,
+      costTimeseries.data,
+      dangerRateSeries.data,
+      directoryTop.data,
+      frictionEvents.data,
+      ingestHealth.data,
+      kpis.data,
+      modelShare.data,
+      rateLimit.data,
+      repoTop.data,
+      showCost,
+      tokenMix.data,
+      toolsComposition.data,
+      volume.data,
+      weeklyQuota.data,
+      branchTop.data
+    ]
+  );
+
   return (
     <div className="space-y-6">
+      <div className="flex items-center justify-end">
+        <ViewExportMenu title="Overview" filters={filters} datasets={exportDatasets} />
+      </div>
       {kpis.error ? (
         <ErrorState onRetry={kpis.refetch} />
       ) : (
@@ -499,7 +548,7 @@ export default function OverviewPage() {
         </section>
       )}
 
-      <IngestHealthPanel />
+      <IngestHealthPanel state={ingestHealth} />
 
       <CardPanel
         title="Usage Volume"

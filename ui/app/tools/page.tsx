@@ -20,6 +20,7 @@ import { CardPanel } from "@/components/state/card-panel";
 import { EmptyState } from "@/components/state/empty-state";
 import { ErrorState } from "@/components/state/error-state";
 import { SideDrawer } from "@/components/state/side-drawer";
+import { ViewExportMenu } from "@/components/state/view-export-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SERIES_COLORS } from "@/lib/charts";
 import { buildFilterQuery } from "@/lib/api";
@@ -126,6 +127,25 @@ export default function ToolsPage() {
     return params.toString();
   }, [filters, settings.dbPath]);
 
+  const exportDatasets = useMemo(
+    () => ({
+      tool_types: typeCounts.data,
+      tool_names: nameCounts.data,
+      tool_trends: trend.data,
+      tool_latency: latency.data,
+      tool_failures: errorRates.data,
+      active_type: activeType
+    }),
+    [
+      activeType,
+      errorRates.data,
+      latency.data,
+      nameCounts.data,
+      trend.data,
+      typeCounts.data
+    ]
+  );
+
   const renderPanelState = <T,>(
     state: {
       data?: T;
@@ -145,6 +165,9 @@ export default function ToolsPage() {
 
   return (
     <div className="space-y-6">
+      <div className="flex items-center justify-end">
+        <ViewExportMenu title="Tools" filters={filters} datasets={exportDatasets} />
+      </div>
       <section className="grid gap-4 lg:grid-cols-2">
         <CardPanel
           title="Tool Composition"

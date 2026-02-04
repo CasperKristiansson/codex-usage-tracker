@@ -17,6 +17,7 @@ import type { VolumeTimeseries } from "@/components/overview/overview-charts";
 import { CardPanel } from "@/components/state/card-panel";
 import { EmptyState } from "@/components/state/empty-state";
 import { ErrorState } from "@/components/state/error-state";
+import { ViewExportMenu } from "@/components/state/view-export-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { isEmptyResponse } from "@/lib/data";
 import { buildFilterQuery } from "@/lib/api";
@@ -63,6 +64,23 @@ export default function ContextPage() {
     );
   }, [volumeRows]);
 
+  const exportDatasets = useMemo(
+    () => ({
+      histogram: histogram.data,
+      danger_rate: dangerRate.data,
+      compaction: compaction.data,
+      context_vs_tokens: contextHeatmap.data,
+      volume: volume.data
+    }),
+    [
+      compaction.data,
+      contextHeatmap.data,
+      dangerRate.data,
+      histogram.data,
+      volume.data
+    ]
+  );
+
   const renderPanelState = <T,>(
     state: {
       data?: T;
@@ -82,6 +100,9 @@ export default function ContextPage() {
 
   return (
     <div className="space-y-6">
+      <div className="flex items-center justify-end">
+        <ViewExportMenu title="Context and Limits" filters={filters} datasets={exportDatasets} />
+      </div>
       <section className="grid gap-4 lg:grid-cols-2">
         <CardPanel
           title="Context Histogram"

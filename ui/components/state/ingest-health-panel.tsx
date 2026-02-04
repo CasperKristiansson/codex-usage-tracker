@@ -19,7 +19,7 @@ type ErrorSample = {
   snippet?: string | null;
 };
 
-type IngestHealth = {
+export type IngestHealth = {
   last_ingested_at?: string | null;
   ingested_range_utc?: { from?: string | null; to?: string | null } | null;
   last_ingest_range?: { from?: string | null; to?: string | null } | null;
@@ -28,6 +28,13 @@ type IngestHealth = {
   errors?: number | null;
   error_samples?: ErrorSample[];
   cost_coverage?: number | null;
+};
+
+type EndpointState<T> = {
+  data?: T;
+  error?: Error;
+  isLoading: boolean;
+  refetch: () => void;
 };
 
 const formatRangeLabel = (
@@ -53,12 +60,13 @@ const buildSampleLabel = (sample: ErrorSample) => {
   return sample.snippet ? `${base}\n${sample.snippet}` : base;
 };
 
-const IngestHealthPanel = () => {
+const IngestHealthPanel = ({ state }: { state?: EndpointState<IngestHealth> }) => {
   const { filters } = useFilters();
   const { settings } = useSettings();
-  const health = useEndpoint<IngestHealth>("/api/ingest/health", filters, {
+  const internal = useEndpoint<IngestHealth>("/api/ingest/health", filters, {
     ttl: 30_000
   });
+  const health = state ?? internal;
 
   const range = health.data?.last_ingest_range ?? health.data?.ingested_range_utc;
   const rangeLabel = useMemo(

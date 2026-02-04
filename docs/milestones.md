@@ -20,7 +20,7 @@
 ## UI and UX
 - [x] Add drill-down navigation from any chart to sessions/turns/tool calls with filters applied.
 - [x] Improve each chart expand modal so the graph uses more height and shows data rows below.
-- [ ] Export the current UI view (with filters) to CSV/JSON.
+- [x] Export the current UI view (with filters) to CSV/JSON.
 - [ ] Add a DB insights view with record counts, DB file size, table sizes, and ingest metadata.
 - [ ] From the DB insights view, support exporting richer datasets (e.g., events/tool calls/turns).
 - [ ] Add date presets for 90 days and 180 days.
