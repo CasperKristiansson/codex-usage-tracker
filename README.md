@@ -10,7 +10,6 @@
 [![Playwright](https://img.shields.io/badge/Playwright-E2E-45ba4b?style=for-the-badge&logo=playwright&logoColor=white)](https://playwright.dev/)
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind%20CSS-3-06B6D4?style=for-the-badge&logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
 [![ESLint](https://img.shields.io/badge/ESLint-9-4B32C3?style=for-the-badge&logo=eslint&logoColor=white)](https://eslint.org/)
-
 [![Dashboard](https://img.shields.io/badge/Dashboard-Next.js-000000?style=for-the-badge)](#overview)
 
 ![Codex Usage Tracker overview](docs/readme-hero.png)
