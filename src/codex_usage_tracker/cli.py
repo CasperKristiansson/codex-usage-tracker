@@ -1,4 +1,5 @@
 import argparse
+import json
 import os
 import subprocess
 import sys
@@ -512,6 +513,32 @@ def ingest_rollouts(
             if snippet:
                 sys.stderr.write(f"  {snippet}\n")
         sys.stderr.flush()
+    if stats.updated_at is None:
+        stats.updated_at = time.time()
+    try:
+        def _format_ts(value: Optional[float]) -> Optional[str]:
+            if value is None:
+                return None
+            return datetime.fromtimestamp(value, tz=ZoneInfo("UTC")).isoformat()
+
+        payload = {
+            "range": {
+                "from": start.isoformat() if start else None,
+                "to": end.isoformat() if end else None,
+            },
+            "files_total": stats.files_total,
+            "files_parsed": stats.files_parsed,
+            "files_skipped": stats.files_skipped,
+            "lines": stats.lines,
+            "events": stats.events,
+            "errors": stats.errors,
+            "started_at": _format_ts(stats.started_at),
+            "updated_at": _format_ts(stats.updated_at),
+            "error_samples": stats.error_samples,
+        }
+        store.set_meta("last_ingest_stats", json.dumps(payload, ensure_ascii=True))
+    except Exception:
+        pass
     return stats
 
 

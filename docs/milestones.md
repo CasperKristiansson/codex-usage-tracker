@@ -10,7 +10,7 @@
 - [x] Add cache effectiveness insights (trends and estimated cache savings).
 
 ## Alerts and Limits
-- [ ] Show an ingest health panel with error samples, skipped files, last ingested range, and cost coverage.
+- [x] Show an ingest health panel with error samples, skipped files, last ingested range, and cost coverage.
 
 ## Ingestion and Reliability
 - [ ] Use hash-based ingestion tracking in addition to mtime/size to detect rewritten files.

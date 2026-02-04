@@ -39,6 +39,7 @@ import { CardPanel } from "@/components/state/card-panel";
 import { EmptyState } from "@/components/state/empty-state";
 import { ErrorState } from "@/components/state/error-state";
 import { KpiCard } from "@/components/state/kpi-card";
+import IngestHealthPanel from "@/components/state/ingest-health-panel";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SERIES_COLORS, TOKEN_MIX_COLORS } from "@/lib/charts";
@@ -497,6 +498,8 @@ export default function OverviewPage() {
           ))}
         </section>
       )}
+
+      <IngestHealthPanel />
 
       <CardPanel
         title="Usage Volume"

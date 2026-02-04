@@ -624,6 +624,17 @@ class UsageStore:
             ("schema_version", str(SCHEMA_VERSION)),
         )
 
+    def set_meta(self, key: str, value: str) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO meta (key, value)
+            VALUES (?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+            """,
+            (key, value),
+        )
+        self.conn.commit()
+
     def upsert_weekly_quota(
         self,
         week_start: str,
