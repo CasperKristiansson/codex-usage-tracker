@@ -1011,8 +1011,9 @@ def main() -> None:
                 env.setdefault("NODE_ENV", "production")
                 env.setdefault("CODEX_USAGE_BACKEND_ROOT", str(repo_root))
                 env.setdefault("CODEX_USAGE_PYTHONPATH", str(repo_root / "src"))
+                node_cmd = os.environ.get("CODEX_USAGE_NODE", "node")
                 result = subprocess.run(
-                    ["node", str(server_js)],
+                    [node_cmd, str(server_js)],
                     env=env,
                     cwd=str(server_js.parent),
                     check=False,
@@ -1020,11 +1021,11 @@ def main() -> None:
                 sys.exit(result.returncode)
         ui_root = repo_root / "ui"
         if not ui_root.exists():
-            raise RuntimeError(f\"UI directory not found at {ui_root}\")
+            raise RuntimeError(f"UI directory not found at {ui_root}")
         env = os.environ.copy()
-        env[\"PORT\"] = str(port)
+        env["PORT"] = str(port)
         result = subprocess.run(
-            [\"pnpm\", \"--dir\", str(ui_root), \"dev\", \"--port\", str(port)],
+            ["pnpm", "--dir", str(ui_root), "dev", "--port", str(port)],
             env=env,
             check=False,
         )

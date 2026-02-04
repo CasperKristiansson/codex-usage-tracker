@@ -20,13 +20,14 @@ const AppShell = ({ children }: AppShellProps) => {
     if (typeof window === "undefined") return false;
     return window.localStorage.getItem(STORAGE_KEY) === "true";
   });
+  const sidebarWidth = collapsed ? "72px" : "260px";
 
   useEffect(() => {
     window.localStorage.setItem(STORAGE_KEY, String(collapsed));
   }, [collapsed]);
 
   return (
-    <div className="flex min-h-screen">
+    <div className="min-h-screen">
       <KeyboardShortcuts />
       <FilterCommandPalette />
       <SettingsSync />
@@ -34,7 +35,10 @@ const AppShell = ({ children }: AppShellProps) => {
         collapsed={collapsed}
         onToggle={() => setCollapsed((prev) => !prev)}
       />
-      <div className="flex min-h-screen flex-1 flex-col">
+      <div
+        className="flex min-h-screen flex-col transition-[padding] duration-200"
+        style={{ paddingLeft: sidebarWidth }}
+      >
         <TopHeader />
         <main className="flex-1">
           <div className="mx-auto w-full max-w-screen-2xl px-4 pb-12 pt-6 sm:px-6">

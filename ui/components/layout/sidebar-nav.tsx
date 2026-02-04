@@ -22,7 +22,7 @@ const SidebarNav = ({ collapsed, onToggle }: SidebarNavProps) => {
   return (
     <aside
       className={cn(
-        "flex h-screen flex-col border-r border-border/20 bg-card/70 px-3 py-5 backdrop-blur",
+        "fixed inset-y-0 left-0 z-40 flex h-screen flex-col overflow-y-auto border-r border-border/20 bg-card/70 px-3 py-5 backdrop-blur transition-[width] duration-200",
         collapsed ? "w-[72px]" : "w-[260px]"
       )}
     >

@@ -1,10 +1,11 @@
 import "./globals.css";
 
 import type { Metadata } from "next";
-import type { ReactNode } from "react";
+import { Suspense, type ReactNode } from "react";
 import { Inter, JetBrains_Mono } from "next/font/google";
 
 import AppShell from "@/components/layout/app-shell";
+import { SkeletonPage } from "@/components/state/skeleton-page";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -27,7 +28,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" className="dark" suppressHydrationWarning>
       <body className={`${inter.variable} ${jetbrains.variable} font-sans`}>
-        <AppShell>{children}</AppShell>
+        <Suspense fallback={<SkeletonPage />}>
+          <AppShell>{children}</AppShell>
+        </Suspense>
       </body>
     </html>
   );
