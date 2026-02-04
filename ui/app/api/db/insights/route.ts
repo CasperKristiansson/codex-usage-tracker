@@ -108,25 +108,22 @@ export const GET = (request: NextRequest) => {
         };
       });
 
+      const getCount = (sql: string) =>
+        (db.prepare(sql).get() as { count: number } | undefined)?.count ?? 0;
+
       rowCounts = {
-        events: db.prepare("SELECT COUNT(*) as count FROM events").get().count,
-        sessions: db.prepare("SELECT COUNT(*) as count FROM sessions").get().count,
-        turns: db.prepare("SELECT COUNT(*) as count FROM turns").get().count,
-        tool_calls: db.prepare("SELECT COUNT(*) as count FROM tool_calls").get().count,
-        content_messages: db
-          .prepare("SELECT COUNT(*) as count FROM content_messages")
-          .get().count,
-        activity_events: db
-          .prepare("SELECT COUNT(*) as count FROM activity_events")
-          .get().count,
-        app_turns: db.prepare("SELECT COUNT(*) as count FROM app_turns").get().count,
-        app_items: db.prepare("SELECT COUNT(*) as count FROM app_items").get().count,
-        weekly_quota_estimates: db
-          .prepare("SELECT COUNT(*) as count FROM weekly_quota_estimates")
-          .get().count,
-        ingestion_files: db
-          .prepare("SELECT COUNT(*) as count FROM ingestion_files")
-          .get().count
+        events: getCount("SELECT COUNT(*) as count FROM events"),
+        sessions: getCount("SELECT COUNT(*) as count FROM sessions"),
+        turns: getCount("SELECT COUNT(*) as count FROM turns"),
+        tool_calls: getCount("SELECT COUNT(*) as count FROM tool_calls"),
+        content_messages: getCount("SELECT COUNT(*) as count FROM content_messages"),
+        activity_events: getCount("SELECT COUNT(*) as count FROM activity_events"),
+        app_turns: getCount("SELECT COUNT(*) as count FROM app_turns"),
+        app_items: getCount("SELECT COUNT(*) as count FROM app_items"),
+        weekly_quota_estimates: getCount(
+          "SELECT COUNT(*) as count FROM weekly_quota_estimates"
+        ),
+        ingestion_files: getCount("SELECT COUNT(*) as count FROM ingestion_files")
       };
 
       const ingestedRange = db

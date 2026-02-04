@@ -1,5 +1,7 @@
 # Codex Usage Tracker
 
+![Codex Usage Tracker overview](readme-hero.png)
+
 Codex Usage Tracker is a local-first tracker for OpenAI Codex CLI usage. It ingests Codex rollout JSONL files and stores token usage plus metadata in SQLite for reporting, exporting, and a local dashboard.
 
 ## Install (One Command)
@@ -249,6 +251,8 @@ Example:
 ```
 
 The dashboard Settings page lets you edit pricing overrides and the currency label without touching the config file.
+
+![Codex Usage Tracker dashboard (1)](readme-dashboard-1.png)
 
 ## Notes
 

@@ -14,7 +14,13 @@ export type Filters = {
 
 export const DEFAULT_TOP_N = 10;
 export const DEFAULT_BUCKET: BucketOption = "auto";
-export const DEFAULT_RANGE_DAYS = 14;
+export const DEFAULT_RANGE_DAYS = 30;
+
+const isValidDateValue = (value: string | null) => {
+  if (!value) return false;
+  const ts = Date.parse(value);
+  return Number.isFinite(ts);
+};
 
 const splitCsv = (value: string | null) =>
   (value ?? "")
@@ -48,9 +54,11 @@ export const parseFilters = (
   params: URLSearchParams,
   defaults: Filters
 ): Filters => {
+  const fromParam = params.get("from");
+  const toParam = params.get("to");
   return {
-    from: params.get("from") || defaults.from,
-    to: params.get("to") || defaults.to,
+    from: isValidDateValue(fromParam) ? fromParam! : defaults.from,
+    to: isValidDateValue(toParam) ? toParam! : defaults.to,
     bucket: (params.get("bucket") as BucketOption) || defaults.bucket,
     models: splitCsv(params.get("models")),
     dirs: splitCsv(params.get("dirs")),
@@ -64,8 +72,8 @@ export const buildParamsWithDefaults = (
   defaults: Filters
 ) => {
   const next = new URLSearchParams(params);
-  if (!next.get("from")) next.set("from", defaults.from);
-  if (!next.get("to")) next.set("to", defaults.to);
+  if (!isValidDateValue(next.get("from"))) next.set("from", defaults.from);
+  if (!isValidDateValue(next.get("to"))) next.set("to", defaults.to);
   if (!next.get("bucket")) next.set("bucket", defaults.bucket);
   if (!next.get("topN")) next.set("topN", String(defaults.topN));
   return next;

@@ -82,7 +82,7 @@ export const GET = (request: NextRequest) => {
       )
       .get([...whereParams, ...havingParams]) as { total: number } | undefined;
 
-    const rows = db
+    const rows = (db
       .prepare(
         `SELECT e.session_id, s.cwd, s.cli_version, MAX(e.captured_at_utc) as last_seen,
           SUM(e.total_tokens) as total_tokens, COUNT(*) as turns,
@@ -100,8 +100,8 @@ export const GET = (request: NextRequest) => {
         ORDER BY total_tokens DESC
         LIMIT ${pageSize} OFFSET ${offset}`
       )
-      .all([...whereParams, ...havingParams])
-      .map((row: Record<string, unknown>) => {
+      .all([...whereParams, ...havingParams]) as Array<Record<string, unknown>>)
+      .map((row) => {
         const tags = typeof row.tags === "string" ? row.tags.split(",") : [];
         return {
           ...row,
