@@ -13,7 +13,7 @@
 
 [![Dashboard](https://img.shields.io/badge/Dashboard-Next.js-000000?style=for-the-badge)](#overview)
 
-![Codex Usage Tracker overview](readme-hero.png)
+![Codex Usage Tracker overview](docs/readme-hero.png)
 
 Codex Usage Tracker is a local-first tracker for OpenAI Codex CLI usage. It ingests Codex rollout JSONL files and stores token usage plus metadata in SQLite for reporting, exporting, and a local dashboard.
 
@@ -265,4 +265,4 @@ Example:
 
 The dashboard Settings page lets you edit pricing overrides and the currency label without touching the config file.
 
-![Codex Usage Tracker dashboard (1)](readme-dashboard-1.png)
+![Codex Usage Tracker dashboard (1)](docs/readme-dashboard-1.png)

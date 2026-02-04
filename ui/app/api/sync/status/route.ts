@@ -28,13 +28,14 @@ export const GET = (request: NextRequest) => {
     const toMs = parseIsoToMs(filters.to);
     const ingestedFromMs = parseIsoToMs(ingestedFrom);
     const ingestedToMs = parseIsoToMs(ingestedTo);
+    const MISSING_GRACE_MS = 5 * 60 * 1000;
     const isMissing =
       !ingestedFromMs ||
       !ingestedToMs ||
       !fromMs ||
       !toMs ||
-      fromMs < ingestedFromMs ||
-      toMs > ingestedToMs;
+      fromMs < ingestedFromMs - MISSING_GRACE_MS ||
+      toMs > ingestedToMs + MISSING_GRACE_MS;
 
     return jsonResponse({
       last_ingested_at: lastIngested?.last_ingested_at ?? null,
