@@ -1,0 +1,27 @@
+# Milestones
+
+## Product and Data
+- [x] Add a `--no-content` (or `--redact`) ingestion mode plus `codex-track purge-content` to remove `content_messages` and `tool_calls` while keeping aggregates.
+- [ ] Allow pricing overrides via config or UI settings, including per-model rates and a custom currency label.
+- [ ] Add timezone configuration for reports and UI (CLI flag + persisted setting).
+- [ ] Implement range comparisons (current range vs previous range with deltas).
+- [ ] Add session tagging/annotations to explain spikes and events.
+- [ ] Add per-repo and per-branch breakdowns using stored git metadata.
+- [ ] Add cache effectiveness insights (trends and estimated cache savings).
+
+## Alerts and Limits
+- [ ] Show an ingest health panel with error samples, skipped files, last ingested range, and cost coverage.
+
+## Ingestion and Reliability
+- [ ] Use hash-based ingestion tracking in addition to mtime/size to detect rewritten files.
+- [ ] Add a watch/daemon mode to auto-ingest new rollout files.
+- [ ] Remove ETA from ingest output so it shows progress only.
+
+## UI and UX
+- [ ] Add drill-down navigation from any chart to sessions/turns/tool calls with filters applied.
+- [ ] Improve each chart expand modal so the graph uses more height and shows data rows below.
+- [ ] Export the current UI view (with filters) to CSV/JSON.
+- [ ] Add a DB insights view with record counts, DB file size, table sizes, and ingest metadata.
+- [ ] From the DB insights view, support exporting richer datasets (e.g., events/tool calls/turns).
+- [ ] Add date presets for 90 days and 180 days.
+- [ ] Fix custom range selection: only show date inputs when custom is selected, and make custom range clickable.

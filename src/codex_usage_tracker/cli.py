@@ -151,6 +151,7 @@ def ingest_rollouts(
     ] = None,
     verbose: bool = False,
     strict: bool = False,
+    no_content: bool = False,
     error_sample_limit: int = 5,
 ) -> IngestStats:
     store.ensure_ingest_version()
@@ -399,7 +400,7 @@ def ingest_rollouts(
                                     )
                                 )
 
-                        if parsed.messages:
+                        if parsed.messages and not no_content:
                             for message in parsed.messages:
                                 pending_messages.append(
                                     MessageEvent(
@@ -414,7 +415,7 @@ def ingest_rollouts(
                                     )
                                 )
 
-                        if parsed.tool_calls:
+                        if parsed.tool_calls and not no_content:
                             for tool_call in parsed.tool_calls:
                                 pending_tool_calls.append(
                                     ToolCallEvent(
@@ -448,13 +449,13 @@ def ingest_rollouts(
                                 commit=False,
                             )
                             pending_activity = []
-                        if len(pending_messages) >= batch_size:
+                        if not no_content and len(pending_messages) >= batch_size:
                             stats.events += store.insert_messages_bulk(
                                 pending_messages,
                                 commit=False,
                             )
                             pending_messages = []
-                        if len(pending_tool_calls) >= batch_size:
+                        if not no_content and len(pending_tool_calls) >= batch_size:
                             stats.events += store.insert_tool_calls_bulk(
                                 pending_tool_calls,
                                 commit=False,
@@ -466,14 +467,15 @@ def ingest_rollouts(
                         pending_activity,
                         commit=False,
                     )
-                    stats.events += store.insert_messages_bulk(
-                        pending_messages,
-                        commit=False,
-                    )
-                    stats.events += store.insert_tool_calls_bulk(
-                        pending_tool_calls,
-                        commit=False,
-                    )
+                    if not no_content:
+                        stats.events += store.insert_messages_bulk(
+                            pending_messages,
+                            commit=False,
+                        )
+                        stats.events += store.insert_tool_calls_bulk(
+                            pending_tool_calls,
+                            commit=False,
+                        )
                     store.mark_file_ingested(str(file_path), mtime_ns, size, commit=False)
         except OSError as exc:
             _record_error(file_path, None, None, exc, label="Read error")
@@ -790,6 +792,12 @@ def build_parser() -> argparse.ArgumentParser:
             action="store_true",
             help="Stop ingestion on the first rollout parse error",
         )
+        target.add_argument(
+            "--no-content",
+            "--redact",
+            action="store_true",
+            help="Skip storing message and tool call content (use purge-content to clear existing data)",
+        )
 
     report_parser = subparsers.add_parser("report", help="Aggregate usage reports")
     report_parser.add_argument("--db", type=Path, default=None)
@@ -869,6 +877,13 @@ def build_parser() -> argparse.ArgumentParser:
     clear_parser.add_argument("--db", type=Path, default=None)
     clear_parser.add_argument("--yes", action="store_true")
 
+    purge_parser = subparsers.add_parser(
+        "purge-content",
+        help="Delete stored content messages and tool calls from the usage DB",
+    )
+    purge_parser.add_argument("--db", type=Path, default=None)
+    purge_parser.add_argument("--yes", action="store_true")
+
     return parser
 
 
@@ -886,6 +901,7 @@ def _ingest_for_range(
         end,
         verbose=args.verbose,
         strict=args.strict,
+        no_content=args.no_content,
     )
 
 
@@ -908,6 +924,23 @@ def main() -> None:
             print(f"Deleted {path}")
         else:
             print(f"No database found at {path}")
+        return
+
+    if args.command == "purge-content":
+        path = args.db if args.db else default_db_path()
+        if not args.yes:
+            confirm = input(
+                f"Delete all content messages and tool calls from {path}? Type 'purge' to confirm: "
+            )
+            if confirm.strip().lower() != "purge":
+                print("Aborted.")
+                store.close()
+                return
+        messages, tool_calls = store.purge_content()
+        store.close()
+        print(
+            f"Purged {messages} content messages and {tool_calls} tool calls from {path}."
+        )
         return
 
     if args.command == "report":

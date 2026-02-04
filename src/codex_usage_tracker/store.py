@@ -1477,3 +1477,17 @@ class UsageStore:
         self.conn.execute("DELETE FROM tool_calls WHERE source = ?", (source,))
         if commit:
             self.conn.commit()
+
+    def purge_content(self, commit: bool = True) -> tuple[int, int]:
+        cur = self.conn.cursor()
+        messages = cur.execute(
+            "SELECT COUNT(*) AS count FROM content_messages"
+        ).fetchone()["count"]
+        tool_calls = cur.execute(
+            "SELECT COUNT(*) AS count FROM tool_calls"
+        ).fetchone()["count"]
+        self.conn.execute("DELETE FROM content_messages")
+        self.conn.execute("DELETE FROM tool_calls")
+        if commit:
+            self.conn.commit()
+        return int(messages or 0), int(tool_calls or 0)
