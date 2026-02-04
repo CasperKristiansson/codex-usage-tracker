@@ -14,6 +14,8 @@ import { SERIES_COLORS } from "@/lib/charts";
 import { formatCompactNumber } from "@/lib/format";
 import { useApi } from "@/lib/hooks/use-api";
 import { useFilters } from "@/lib/hooks/use-filters";
+import { useSettings } from "@/lib/hooks/use-settings";
+import { formatTimestamp } from "@/lib/timezone";
 
 export type SessionDetail = {
   session: Record<string, string | null>;
@@ -48,13 +50,6 @@ type MessageSample = {
   }>;
 };
 
-const formatTimestamp = (value?: string | null) => {
-  if (!value) return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString();
-};
-
 export const SessionDetailDrawer = ({
   sessionId,
   open,
@@ -65,6 +60,7 @@ export const SessionDetailDrawer = ({
   onClose: () => void;
 }) => {
   const { filters } = useFilters();
+  const { settings } = useSettings();
   const detailKey = sessionId ? `/api/sessions/detail?session_id=${sessionId}` : null;
   const detail = useApi<SessionDetail>(detailKey, { disabled: !sessionId });
 
@@ -100,8 +96,14 @@ export const SessionDetailDrawer = ({
     return [
       { label: "Session ID", value: session.session_id },
       { label: "CWD", value: session.cwd },
-      { label: "Started", value: formatTimestamp(session.session_timestamp_utc) },
-      { label: "Captured", value: formatTimestamp(session.captured_at_utc) },
+      {
+        label: "Started",
+        value: formatTimestamp(session.session_timestamp_utc, settings.timezone)
+      },
+      {
+        label: "Captured",
+        value: formatTimestamp(session.captured_at_utc, settings.timezone)
+      },
       { label: "Source", value: session.source },
       { label: "Model provider", value: session.model_provider },
       { label: "Git branch", value: session.git_branch },
@@ -294,7 +296,7 @@ export const SessionDetailDrawer = ({
                         ) : null}
                       </div>
                       <span className="text-muted-foreground">
-                        {formatTimestamp(row.captured_at_utc)}
+                        {formatTimestamp(row.captured_at_utc, settings.timezone)}
                       </span>
                     </div>
                     <div className="mt-2 text-[11px] text-muted-foreground">
@@ -377,7 +379,7 @@ export const SessionDetailDrawer = ({
                         {row.role ?? "role"}
                       </div>
                       <span className="text-muted-foreground">
-                        {formatTimestamp(row.captured_at_utc)}
+                        {formatTimestamp(row.captured_at_utc, settings.timezone)}
                       </span>
                     </div>
                     <div className="mt-2 text-[11px] text-muted-foreground">

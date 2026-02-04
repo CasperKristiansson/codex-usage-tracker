@@ -27,6 +27,7 @@ import {
   uniqueBuckets
 } from "@/lib/charts";
 import { formatCompactNumber, formatCurrency, formatPercent } from "@/lib/format";
+import { useSettings } from "@/lib/hooks/use-settings";
 
 export type VolumeMetric = "total_tokens" | "turns" | "sessions";
 export type TokenMixMode = "absolute" | "percent";
@@ -167,6 +168,8 @@ export const VolumeChart = ({
   data: VolumeTimeseries;
   metric: VolumeMetric;
 }) => {
+  const { settings } = useSettings();
+  const timeZone = settings.timezone;
   const chartData = useMemo(
     () =>
       data.rows.map((row) => ({
@@ -191,7 +194,9 @@ export const VolumeChart = ({
           <CartesianGrid stroke="hsl(var(--border) / 0.2)" vertical={false} />
           <XAxis
             dataKey="bucket"
-            tickFormatter={(value) => formatBucketLabel(String(value), data.bucket)}
+            tickFormatter={(value) =>
+              formatBucketLabel(String(value), data.bucket, timeZone)
+            }
             tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
             axisLine={false}
             tickLine={false}
@@ -208,7 +213,7 @@ export const VolumeChart = ({
             content={
               <ChartTooltip
                 labelFormatter={(value) =>
-                  formatBucketLabel(value, data.bucket)
+                  formatBucketLabel(value, data.bucket, timeZone)
                 }
                 valueFormatter={(value) => formatCompactNumber(value)}
               />
@@ -235,6 +240,8 @@ export const CostChart = ({
   data: CostTimeseries;
   currencyLabel?: string;
 }) => {
+  const { settings } = useSettings();
+  const timeZone = settings.timezone;
   const chartData = useMemo(
     () =>
       data.rows.map((row) => ({
@@ -258,7 +265,9 @@ export const CostChart = ({
           <CartesianGrid stroke="hsl(var(--border) / 0.2)" vertical={false} />
           <XAxis
             dataKey="bucket"
-            tickFormatter={(value) => formatBucketLabel(String(value), data.bucket)}
+            tickFormatter={(value) =>
+              formatBucketLabel(String(value), data.bucket, timeZone)
+            }
             tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
             axisLine={false}
             tickLine={false}
@@ -274,7 +283,9 @@ export const CostChart = ({
             {...TOOLTIP_STYLE}
             content={
               <ChartTooltip
-                labelFormatter={(value) => formatBucketLabel(String(value), data.bucket)}
+                labelFormatter={(value) =>
+                  formatBucketLabel(String(value), data.bucket, timeZone)
+                }
                 valueFormatter={(value) => formatCurrency(Number(value), false, currencyLabel)}
               />
             }
@@ -304,6 +315,8 @@ export const TokenMixChart = ({
     "input_tokens" | "cached_input_tokens" | "output_tokens" | "reasoning_tokens"
   >;
 }) => {
+  const { settings } = useSettings();
+  const timeZone = settings.timezone;
   const visible = useMemo(
     () =>
       new Set(
@@ -386,7 +399,9 @@ export const TokenMixChart = ({
             <CartesianGrid stroke="hsl(var(--border) / 0.2)" vertical={false} />
             <XAxis
               dataKey="bucket"
-              tickFormatter={(value) => formatBucketLabel(String(value), data.bucket)}
+              tickFormatter={(value) =>
+                formatBucketLabel(String(value), data.bucket, timeZone)
+              }
               tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
               axisLine={false}
               tickLine={false}
@@ -414,7 +429,7 @@ export const TokenMixChart = ({
                 return (
                   <div className="rounded-lg border border-border/40 bg-popover px-3 py-2 text-xs text-foreground shadow-lg">
                     <div className="mb-2 text-[11px] uppercase tracking-[0.2em] text-muted-foreground">
-                      {formatBucketLabel(String(label), data.bucket)}
+                      {formatBucketLabel(String(label), data.bucket, timeZone)}
                     </div>
                     <div className="space-y-1">
                       <div className="flex items-center justify-between gap-4">
@@ -542,6 +557,8 @@ export const ModelShareChart = ({
   onSelectModel?: (model: string, shiftKey: boolean) => void;
   visibleKeys?: string[];
 }) => {
+  const { settings } = useSettings();
+  const timeZone = settings.timezone;
   const { rows, keys, totals } = useMemo(() => {
     const series =
       data.series && !Array.isArray(data.series) ? data.series : {};
@@ -586,7 +603,9 @@ export const ModelShareChart = ({
             <CartesianGrid stroke="hsl(var(--border) / 0.2)" vertical={false} />
             <XAxis
               dataKey="bucket"
-              tickFormatter={(value) => formatBucketLabel(String(value), data.bucket)}
+              tickFormatter={(value) =>
+                formatBucketLabel(String(value), data.bucket, timeZone)
+              }
               tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
               axisLine={false}
               tickLine={false}
@@ -603,7 +622,7 @@ export const ModelShareChart = ({
               content={
                 <ChartTooltip
                   labelFormatter={(value) =>
-                    formatBucketLabel(value, data.bucket)
+                    formatBucketLabel(value, data.bucket, timeZone)
                   }
                   valueFormatter={(value) => formatCompactNumber(value)}
                 />
@@ -709,6 +728,8 @@ export const ContextPressureChart = ({
   data: ContextPressure;
   sparkline?: DangerRateTimeseries;
 }) => {
+  const { settings } = useSettings();
+  const timeZone = settings.timezone;
   const chartData = useMemo(() => {
     return (data.histogram ?? []).map((row) => ({
       bin: safeNumber(row.bin),
@@ -753,7 +774,8 @@ export const ContextPressureChart = ({
                       labelFormatter={(value) =>
                         formatBucketLabel(
                           value,
-                          sparkline?.bucket ?? "day"
+                          sparkline?.bucket ?? "day",
+                          timeZone
                         )
                       }
                       valueFormatter={(value) => formatPercent(value / 100)}
@@ -831,6 +853,8 @@ export const RateLimitChart = ({
   data: RateLimitHeadroom;
   visibleKeys?: Array<"min_5h_left" | "min_weekly_left">;
 }) => {
+  const { settings } = useSettings();
+  const timeZone = settings.timezone;
   const visible = useMemo(
     () =>
       new Set(
@@ -861,7 +885,9 @@ export const RateLimitChart = ({
           <CartesianGrid stroke="hsl(var(--border) / 0.2)" vertical={false} />
           <XAxis
             dataKey="bucket"
-            tickFormatter={(value) => formatBucketLabel(String(value), data.bucket)}
+            tickFormatter={(value) =>
+              formatBucketLabel(String(value), data.bucket, timeZone)
+            }
             tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
             axisLine={false}
             tickLine={false}
@@ -891,7 +917,7 @@ export const RateLimitChart = ({
             content={
               <ChartTooltip
                 labelFormatter={(value) =>
-                  formatBucketLabel(value, data.bucket)
+                  formatBucketLabel(value, data.bucket, timeZone)
                 }
                 valueFormatter={(value) => formatPercent(value / 100)}
               />
@@ -939,6 +965,8 @@ export const FrictionEventsChart = ({
   data: FrictionEvents;
   visibleKeys?: string[];
 }) => {
+  const { settings } = useSettings();
+  const timeZone = settings.timezone;
   const eventTypes = useMemo(
     () => Object.keys(frictionLabels),
     []
@@ -989,7 +1017,9 @@ export const FrictionEventsChart = ({
             <CartesianGrid stroke="hsl(var(--border) / 0.2)" vertical={false} />
             <XAxis
               dataKey="bucket"
-              tickFormatter={(value) => formatBucketLabel(String(value), data.bucket)}
+              tickFormatter={(value) =>
+                formatBucketLabel(String(value), data.bucket, timeZone)
+              }
               tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
               axisLine={false}
               tickLine={false}
@@ -1006,7 +1036,7 @@ export const FrictionEventsChart = ({
               content={
                 <ChartTooltip
                   labelFormatter={(value) =>
-                    formatBucketLabel(value, data.bucket)
+                    formatBucketLabel(value, data.bucket, timeZone)
                   }
                   valueFormatter={(value) => formatCompactNumber(value)}
                 />

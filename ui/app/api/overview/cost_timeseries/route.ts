@@ -16,7 +16,7 @@ export const GET = (request: NextRequest) => {
     const db = getDb(request.nextUrl.searchParams);
     const bucketExpr = bucketExpression(filters.resolvedBucket);
     const base = buildWhere(filters, {
-      timeColumn: "captured_at_utc",
+      timeColumn: "captured_at",
       modelColumn: "model",
       dirColumn: "directory",
       sourceColumn: "source"

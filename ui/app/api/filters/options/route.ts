@@ -18,7 +18,7 @@ export const GET = (request: NextRequest) => {
     const modelFilters = { ...filters, models: [] };
     const modelWhere = applyEventType(
       buildWhere(modelFilters, {
-        timeColumn: "captured_at_utc",
+        timeColumn: "captured_at",
         modelColumn: "model",
         dirColumn: "directory",
         sourceColumn: "source"
@@ -40,7 +40,7 @@ export const GET = (request: NextRequest) => {
     const dirFilters = { ...filters, dirs: [] };
     const dirWhere = applyEventType(
       buildWhere(dirFilters, {
-        timeColumn: "captured_at_utc",
+        timeColumn: "captured_at",
         modelColumn: "model",
         dirColumn: "directory",
         sourceColumn: "source"
@@ -62,7 +62,7 @@ export const GET = (request: NextRequest) => {
     const sourceFilters = { ...filters, source: [] };
     const sourceWhere = applyEventType(
       buildWhere(sourceFilters, {
-        timeColumn: "captured_at_utc",
+        timeColumn: "captured_at",
         modelColumn: "model",
         dirColumn: "directory",
         sourceColumn: "source"

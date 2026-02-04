@@ -1,3 +1,5 @@
+import { normalizeTimeZone, parseDateTimeInput } from "@/lib/timezone";
+
 export const TOKEN_MIX_COLORS = {
   input_tokens: "#60A5FA",
   cached_input_tokens: "#34D399",
@@ -18,39 +20,65 @@ export const SERIES_COLORS = [
   "#93C5FD"
 ];
 
-const dayFormatter = new Intl.DateTimeFormat("en-US", {
-  month: "short",
-  day: "numeric"
-});
-const hourFormatter = new Intl.DateTimeFormat("en-US", {
-  month: "short",
-  day: "numeric",
-  hour: "numeric"
-});
+const formatterCache = new Map<string, Intl.DateTimeFormat>();
+
+const getFormatter = (
+  timeZone: string | undefined,
+  options: Intl.DateTimeFormatOptions
+) => {
+  const key = `${timeZone ?? "local"}:${JSON.stringify(options)}`;
+  const cached = formatterCache.get(key);
+  if (cached) return cached;
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    ...options,
+    ...(timeZone ? { timeZone } : {})
+  });
+  formatterCache.set(key, formatter);
+  return formatter;
+};
+
+const resolveBucketDate = (bucket: string, timeZone?: string) => {
+  const hasOffset = /(?:Z|[+-]\\d{2}:\\d{2})$/.test(bucket);
+  if (hasOffset || !timeZone) return new Date(bucket);
+  const tz = normalizeTimeZone(timeZone);
+  let normalized = bucket;
+  if (bucket.length === 10) {
+    normalized = `${bucket}T00:00`;
+  } else if (bucket.length === 13) {
+    normalized = `${bucket}:00`;
+  } else if (bucket.length >= 16) {
+    normalized = bucket.slice(0, 16);
+  }
+  const iso = parseDateTimeInput(normalized, tz);
+  return iso ? new Date(iso) : new Date(bucket);
+};
 
 export const formatBucketLabel = (
   bucket: string,
-  bucketType: "hour" | "day"
+  bucketType: "hour" | "day",
+  timeZone?: string
 ) => {
-  const date = new Date(bucket);
+  const date = resolveBucketDate(bucket, timeZone);
   if (Number.isNaN(date.getTime())) return bucket;
-  return bucketType === "hour"
-    ? hourFormatter.format(date)
-    : dayFormatter.format(date);
+  const formatter =
+    bucketType === "hour"
+      ? getFormatter(timeZone, { month: "short", day: "numeric", hour: "numeric" })
+      : getFormatter(timeZone, { month: "short", day: "numeric" });
+  return formatter.format(date);
 };
 
 export const formatBucketValue = (
   bucket: string,
-  bucketType: "hour" | "day"
+  bucketType: "hour" | "day",
+  timeZone?: string
 ) => {
-  const date = new Date(bucket);
+  const date = resolveBucketDate(bucket, timeZone);
   if (Number.isNaN(date.getTime())) return bucket;
-  return bucketType === "hour"
-    ? date.toLocaleTimeString("en-US", { hour: "numeric" })
-    : date.toLocaleDateString("en-US", {
-        month: "short",
-        day: "numeric"
-      });
+  const formatter =
+    bucketType === "hour"
+      ? getFormatter(timeZone, { hour: "numeric" })
+      : getFormatter(timeZone, { month: "short", day: "numeric" });
+  return formatter.format(date);
 };
 
 export const safeNumber = (value: unknown) => {

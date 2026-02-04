@@ -1,6 +1,3 @@
-import fs from "fs";
-import path from "path";
-
 import {
   DEFAULT_CURRENCY_LABEL,
   DEFAULT_PRICING,
@@ -8,7 +5,7 @@ import {
   type PricingModel,
   type PricingSettings
 } from "@/lib/pricing";
-import { resolveConfigPath } from "@/lib/server/paths";
+import { loadConfigPayload, saveConfigPayload } from "@/lib/server/config";
 
 type PricingOverrides = {
   unit?: PricingConfig["unit"];
@@ -78,17 +75,6 @@ const mergePricing = (overrides?: PricingOverrides): PricingConfig => {
   };
 };
 
-const readPricingPayload = (configPath: string): RawPricingPayload => {
-  if (!fs.existsSync(configPath)) return {};
-  try {
-    const raw = fs.readFileSync(configPath, "utf-8");
-    const payload = JSON.parse(raw);
-    return typeof payload === "object" && payload !== null ? (payload as RawPricingPayload) : {};
-  } catch {
-    return {};
-  }
-};
-
 const buildOverrides = (pricing: PricingConfig): PricingOverrides | null => {
   const overrides: PricingOverrides = {};
   if (pricing.per_unit !== DEFAULT_PRICING.per_unit) {
@@ -124,25 +110,17 @@ const buildOverrides = (pricing: PricingConfig): PricingOverrides | null => {
   return overrides;
 };
 
-const resolveDbOverride = (
-  value?: URLSearchParams | string | null
-): string | null => {
-  if (!value) return null;
-  if (typeof value === "string") return value;
-  return value.get("db");
-};
-
 export const loadPricingSettings = (
   dbOverride?: URLSearchParams | string | null
 ): PricingSettings => {
-  const configPath = resolveConfigPath(resolveDbOverride(dbOverride));
-  const payload = readPricingPayload(configPath);
+  const { payload } = loadConfigPayload(dbOverride);
+  const pricingPayload = payload as RawPricingPayload;
   const label =
-    payload.currency_label ??
-    payload.currencyLabel ??
-    payload.currency ??
+    pricingPayload.currency_label ??
+    pricingPayload.currencyLabel ??
+    pricingPayload.currency ??
     DEFAULT_CURRENCY_LABEL;
-  const pricingSource = payload.pricing ?? payload;
+  const pricingSource = pricingPayload.pricing ?? pricingPayload;
   const pricing = mergePricing({
     unit: pricingSource.unit,
     per_unit: pricingSource.per_unit,
@@ -159,7 +137,7 @@ export const savePricingSettings = (
   input: PricingSettings,
   dbOverride?: URLSearchParams | string | null
 ) => {
-  const configPath = resolveConfigPath(resolveDbOverride(dbOverride));
+  const { payload: existing } = loadConfigPayload(dbOverride);
   const currency_label = normalizeLabel(input.currency_label);
   const pricing = mergePricing({
     unit: input.pricing.unit,
@@ -167,7 +145,15 @@ export const savePricingSettings = (
     models: input.pricing.models
   });
   const overrides = buildOverrides(pricing);
-  const payload: Record<string, unknown> = {};
+  const payload: Record<string, unknown> = { ...existing };
+
+  delete payload.currency_label;
+  delete payload.currencyLabel;
+  delete payload.currency;
+  delete payload.pricing;
+  delete payload.unit;
+  delete payload.per_unit;
+  delete payload.models;
 
   if (currency_label !== DEFAULT_CURRENCY_LABEL) {
     payload.currency_label = currency_label;
@@ -176,14 +162,6 @@ export const savePricingSettings = (
     payload.pricing = overrides;
   }
 
-  if (!Object.keys(payload).length) {
-    if (fs.existsSync(configPath)) {
-      fs.unlinkSync(configPath);
-    }
-    return { currency_label, pricing };
-  }
-
-  fs.mkdirSync(path.dirname(configPath), { recursive: true });
-  fs.writeFileSync(configPath, JSON.stringify(payload, null, 2));
+  saveConfigPayload(payload, dbOverride);
   return { currency_label, pricing };
 };

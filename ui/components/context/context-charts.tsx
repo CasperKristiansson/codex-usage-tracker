@@ -20,6 +20,7 @@ import { ChartTooltip } from "@/components/charts/chart-tooltip";
 import { LegendInline } from "@/components/charts/legend-inline";
 import { formatBucketLabel, safeNumber, uniqueBuckets } from "@/lib/charts";
 import { formatCompactNumber, formatPercent } from "@/lib/format";
+import { useSettings } from "@/lib/hooks/use-settings";
 import { cn } from "@/lib/utils";
 
 export type ContextHistogram = {
@@ -127,6 +128,8 @@ export const ContextHistogramChart = ({ data }: { data: ContextHistogram }) => {
 };
 
 export const DangerRateChart = ({ data }: { data: DangerRateTimeseries }) => {
+  const { settings } = useSettings();
+  const timeZone = settings.timezone;
   const chartData = useMemo(
     () =>
       data.rows.map((row) => ({
@@ -146,7 +149,9 @@ export const DangerRateChart = ({ data }: { data: DangerRateTimeseries }) => {
           <CartesianGrid stroke="hsl(var(--border) / 0.2)" vertical={false} />
           <XAxis
             dataKey="bucket"
-            tickFormatter={(value) => formatBucketLabel(String(value), data.bucket)}
+            tickFormatter={(value) =>
+              formatBucketLabel(String(value), data.bucket, timeZone)
+            }
             tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
             axisLine={false}
             tickLine={false}
@@ -164,7 +169,7 @@ export const DangerRateChart = ({ data }: { data: DangerRateTimeseries }) => {
             content={
               <ChartTooltip
                 labelFormatter={(value) =>
-                  formatBucketLabel(String(value), data.bucket)
+                  formatBucketLabel(String(value), data.bucket, timeZone)
                 }
                 valueFormatter={(value) => formatPercent(value / 100)}
               />
@@ -195,6 +200,8 @@ export const CompactionEventsChart = ({
 }: {
   data: CompactionTimeseries;
 }) => {
+  const { settings } = useSettings();
+  const timeZone = settings.timezone;
   const seriesKeys = EVENT_META.map((item) => item.label);
 
   const chartData = useMemo(() => {
@@ -248,7 +255,7 @@ export const CompactionEventsChart = ({
             <XAxis
               dataKey="bucket"
               tickFormatter={(value) =>
-                formatBucketLabel(String(value), data.bucket)
+                formatBucketLabel(String(value), data.bucket, timeZone)
               }
               tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
               axisLine={false}
@@ -266,7 +273,7 @@ export const CompactionEventsChart = ({
               content={
                 <ChartTooltip
                   labelFormatter={(value) =>
-                    formatBucketLabel(String(value), data.bucket)
+                    formatBucketLabel(String(value), data.bucket, timeZone)
                   }
                 />
               }

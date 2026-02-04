@@ -15,6 +15,12 @@ import {
 } from "@/lib/filters";
 import { useEndpoint } from "@/lib/hooks/use-endpoint";
 import { useDebouncedValue } from "@/lib/hooks/use-debounced-value";
+import { useSettings } from "@/lib/hooks/use-settings";
+import {
+  formatDateTimeInput,
+  parseDateTimeInput,
+  toZonedIso
+} from "@/lib/timezone";
 import { asRoute } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -35,20 +41,6 @@ type FilterOptions = {
   sources: string[];
 };
 
-const formatDateInput = (iso: string) => {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "";
-  const offset = date.getTimezoneOffset() * 60000;
-  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
-};
-
-const parseDateInput = (value: string) => {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  return date.toISOString();
-};
-
 const inferPreset = (from: string, to: string) => {
   const start = new Date(from).getTime();
   const end = new Date(to).getTime();
@@ -64,7 +56,9 @@ const GlobalFiltersBar = () => {
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
-  const defaults = useMemo(() => getDefaultFilters(), []);
+  const { settings } = useSettings();
+  const timeZone = settings.timezone;
+  const defaults = useMemo(() => getDefaultFilters(timeZone), [timeZone]);
   const meta = useEndpoint<{ distinct?: { sources?: number } }>("/api/meta");
   const hasMultipleSources = (meta.data?.distinct?.sources ?? 0) > 1;
 
@@ -73,9 +67,9 @@ const GlobalFiltersBar = () => {
       new URLSearchParams(searchParams.toString()),
       defaults
     );
-      if (next.toString() !== searchParams.toString()) {
+    if (next.toString() !== searchParams.toString()) {
       router.replace(asRoute(`${pathname}?${next.toString()}`), { scroll: false });
-      }
+    }
   }, [searchParams, defaults, router, pathname]);
 
   const filters = useMemo(
@@ -90,19 +84,19 @@ const GlobalFiltersBar = () => {
     () => inferPreset(filters.from, filters.to),
     [filters.from, filters.to]
   );
-  const [fromInput, setFromInput] = useState(formatDateInput(filters.from));
-  const [toInput, setToInput] = useState(formatDateInput(filters.to));
+  const [fromInput, setFromInput] = useState(
+    formatDateTimeInput(filters.from, timeZone)
+  );
+  const [toInput, setToInput] = useState(
+    formatDateTimeInput(filters.to, timeZone)
+  );
   const [topNInput, setTopNInput] = useState(String(filters.topN));
 
   useEffect(() => {
-    setFromInput(formatDateInput(filters.from));
-    setToInput(formatDateInput(filters.to));
+    setFromInput(formatDateTimeInput(filters.from, timeZone));
+    setToInput(formatDateTimeInput(filters.to, timeZone));
     setTopNInput(String(filters.topN));
-  }, [
-    filters.from,
-    filters.to,
-    filters.topN
-  ]);
+  }, [filters.from, filters.to, filters.topN, timeZone]);
 
   const debouncedTopN = useDebouncedValue(topNInput, 250);
 
@@ -143,11 +137,11 @@ const GlobalFiltersBar = () => {
     const preset = RANGE_PRESETS.find((entry) => entry.value === value);
     if (!preset?.hours) return;
     const from = new Date(now.getTime() - preset.hours * 60 * 60 * 1000);
-    updateParams({ from: from.toISOString(), to: now.toISOString() });
+    updateParams({ from: toZonedIso(from, timeZone), to: toZonedIso(now, timeZone) });
   };
 
   const handleCustomChange = (type: "from" | "to", value: string) => {
-    const iso = parseDateInput(value);
+    const iso = parseDateTimeInput(value, timeZone);
     if (!iso) return;
     updateParams({
       [type]: iso

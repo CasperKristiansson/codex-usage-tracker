@@ -5,9 +5,10 @@ from pathlib import Path
 from typing import Dict, Iterable, Iterator, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
-from .report import STOCKHOLM_TZ
+from .config import DEFAULT_TIMEZONE
 
 BASELINE_TOKENS = 12000
+DEFAULT_TZ = ZoneInfo(DEFAULT_TIMEZONE)
 
 
 @dataclass
@@ -160,11 +161,15 @@ def parse_rollout_timestamp(value: str) -> datetime:
     return dt
 
 
-def _format_reset_timestamp(reset_seconds: Optional[int], captured_at: datetime) -> Optional[str]:
+def _format_reset_timestamp(
+    reset_seconds: Optional[int],
+    captured_at: datetime,
+    tz: ZoneInfo,
+) -> Optional[str]:
     if reset_seconds is None:
         return None
-    dt = datetime.fromtimestamp(reset_seconds, tz=ZoneInfo("UTC")).astimezone(STOCKHOLM_TZ)
-    captured_local = captured_at.astimezone(STOCKHOLM_TZ)
+    dt = datetime.fromtimestamp(reset_seconds, tz=ZoneInfo("UTC")).astimezone(tz)
+    captured_local = captured_at.astimezone(tz)
     time_text = dt.strftime("%H:%M")
     if dt.date() == captured_local.date():
         return time_text
@@ -189,14 +194,17 @@ def _context_percent_left(total_tokens: Optional[int], context_window: Optional[
     return int(round((remaining / effective_window) * 100.0))
 
 
-def _parse_optional_timestamp(value: Optional[str]) -> Tuple[Optional[datetime], Optional[datetime]]:
+def _parse_optional_timestamp(
+    value: Optional[str],
+    tz: ZoneInfo,
+) -> Tuple[Optional[datetime], Optional[datetime]]:
     if not value:
         return None, None
     try:
         parsed = parse_rollout_timestamp(value)
     except ValueError:
         return None, None
-    return parsed.astimezone(STOCKHOLM_TZ), parsed
+    return parsed.astimezone(tz), parsed
 
 
 def _coerce_bool(value: Optional[object]) -> Optional[bool]:
@@ -302,6 +310,7 @@ STATE_CHANGE_EVENTS = {
 def parse_rollout_line(
     raw: str,
     context: RolloutContext,
+    tz: ZoneInfo = DEFAULT_TZ,
 ) -> Tuple[Optional[ParsedRolloutItem], RolloutContext]:
     data = json.loads(raw)
     item_type = data.get("type")
@@ -309,9 +318,7 @@ def parse_rollout_line(
 
     timestamp = data.get("timestamp")
     captured_at_utc = parse_rollout_timestamp(timestamp) if timestamp else None
-    captured_at_local = (
-        captured_at_utc.astimezone(STOCKHOLM_TZ) if captured_at_utc else None
-    )
+    captured_at_local = captured_at_utc.astimezone(tz) if captured_at_utc else None
 
     if item_type == "session_meta":
         if captured_at_local is None or captured_at_utc is None:
@@ -320,7 +327,8 @@ def parse_rollout_line(
         context.directory = payload.get("cwd") or context.directory
         context.codex_version = payload.get("cli_version") or context.codex_version
         session_timestamp_local, session_timestamp_utc = _parse_optional_timestamp(
-            payload.get("timestamp")
+            payload.get("timestamp"),
+            tz,
         )
         git = payload.get("git") if isinstance(payload.get("git"), dict) else {}
         item = ParsedRolloutItem(
@@ -801,9 +809,11 @@ def parse_rollout_line(
     limit_5h_percent_left = _percent_left(primary_used)
     limit_weekly_percent_left = _percent_left(secondary_used)
 
-    limit_5h_resets_at = _format_reset_timestamp(primary.get("resets_at"), captured_at_local)
+    limit_5h_resets_at = _format_reset_timestamp(
+        primary.get("resets_at"), captured_at_local, tz
+    )
     limit_weekly_resets_at = _format_reset_timestamp(
-        secondary.get("resets_at"), captured_at_local
+        secondary.get("resets_at"), captured_at_local, tz
     )
 
     credits = limits.get("credits") or {}

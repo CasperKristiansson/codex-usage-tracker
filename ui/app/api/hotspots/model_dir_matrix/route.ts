@@ -32,7 +32,7 @@ export const GET = (request: NextRequest) => {
     const filters = parseFilters(request.nextUrl.searchParams);
     const db = getDb(request.nextUrl.searchParams);
     const base = buildWhere(filters, {
-      timeColumn: "captured_at_utc",
+      timeColumn: "captured_at",
       modelColumn: "model",
       dirColumn: "directory",
       sourceColumn: "source"

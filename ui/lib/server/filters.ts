@@ -24,9 +24,11 @@ const parseList = (value: string | null) =>
 
 const parseIso = (value: string | null) => {
   if (!value) return null;
-  const parsed = new Date(value);
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const parsed = new Date(trimmed);
   if (Number.isNaN(parsed.getTime())) return null;
-  return parsed.toISOString();
+  return trimmed;
 };
 
 export const parseFilters = (searchParams: URLSearchParams): NormalizedFilters => {

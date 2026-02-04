@@ -531,6 +531,12 @@ class UsageStore:
         )
         cur.execute(
             """
+            CREATE INDEX IF NOT EXISTS tool_calls_captured_at_idx
+            ON tool_calls(captured_at)
+            """
+        )
+        cur.execute(
+            """
             CREATE INDEX IF NOT EXISTS tool_calls_captured_at_utc_idx
             ON tool_calls(captured_at_utc)
             """

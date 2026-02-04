@@ -2,12 +2,15 @@
 
 import { useEffect, useState } from "react";
 
+import { DEFAULT_TIMEZONE, normalizeTimeZone } from "@/lib/timezone";
+
 export type DensityMode = "comfortable" | "compact";
 
 export type Settings = {
   dbPath: string;
   showCost: boolean;
   density: DensityMode;
+  timezone: string;
 };
 
 const STORAGE_KEY = "cut.settings";
@@ -15,10 +18,12 @@ const STORAGE_KEY = "cut.settings";
 const DEFAULT_SETTINGS: Settings = {
   dbPath: "",
   showCost: true,
-  density: "comfortable"
+  density: "comfortable",
+  timezone: DEFAULT_TIMEZONE
 };
 
 const listeners = new Set<(settings: Settings) => void>();
+let timezoneHydratedKey: string | null = null;
 
 const readSettings = (): Settings => {
   if (typeof window === "undefined") return DEFAULT_SETTINGS;
@@ -28,7 +33,8 @@ const readSettings = (): Settings => {
     const parsed = JSON.parse(raw) as Partial<Settings>;
     return {
       ...DEFAULT_SETTINGS,
-      ...parsed
+      ...parsed,
+      timezone: normalizeTimeZone(parsed.timezone ?? DEFAULT_SETTINGS.timezone)
     };
   } catch {
     return DEFAULT_SETTINGS;
@@ -52,11 +58,37 @@ export const useSettings = () => {
     };
   }, []);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const dbPath = settings.dbPath?.trim() ?? "";
+    if (timezoneHydratedKey === dbPath) return;
+    timezoneHydratedKey = dbPath;
+    const params = new URLSearchParams();
+    if (dbPath) params.set("db", dbPath);
+    const url = params.toString()
+      ? `/api/settings/timezone?${params.toString()}`
+      : "/api/settings/timezone";
+    fetch(url)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((payload) => {
+        const candidate = payload?.timezone;
+        if (typeof candidate !== "string") return;
+        const normalized = normalizeTimeZone(candidate);
+        const current = readSettings();
+        if (current.timezone === normalized) return;
+        const next = { ...current, timezone: normalized };
+        writeSettings(next);
+        setSettings(next);
+      })
+      .catch(() => null);
+  }, [settings.dbPath]);
+
   const updateSettings = (patch: Partial<Settings>) => {
     const next = {
       ...readSettings(),
       ...patch
     };
+    next.timezone = normalizeTimeZone(next.timezone);
     writeSettings(next);
     setSettings(next);
   };

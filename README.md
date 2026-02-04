@@ -26,6 +26,38 @@ CODEX_USAGE_BIN_DIR=/path/to/bin \
 ./scripts/install.sh
 ```
 
+## Install (From Source)
+
+Use this when developing locally without the bundled installer.
+
+### macOS / Linux setup
+
+```bash
+python -m venv .venv
+. .venv/bin/activate
+python -m pip install -U pip
+python -m pip install -e .
+```
+
+### UI dev server
+
+```bash
+cd ui
+pnpm install
+pnpm dev
+```
+
+Then run `codex-track web --no-open` and open the local URL printed in the terminal.
+
+### Troubleshooting install
+
+Common fixes if install/build fails:
+
+* **Python deps fail:** upgrade pip (`python -m pip install -U pip`) and retry.
+* **`better-sqlite3` build fails (UI):** use Node 20 or 22, then rerun `./scripts/install.sh` or `pnpm install` in `ui/`.
+* **macOS toolchain:** install Xcode Command Line Tools: `xcode-select --install`.
+* **`pnpm` missing:** install pnpm (`corepack enable && corepack prepare pnpm@latest --activate`) or via your package manager.
+
 ## Overview
 
 * **Primary goal:** Track and summarize Codex CLI token usage locally.
@@ -131,11 +163,12 @@ The bundled CLI is named: **`codex-track`**
 
 | Command                         | Purpose                                                         | Key flags                                                                                                                                                                                               |
 | ------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `codex-track report`            | Generate summaries/breakdowns (auto-ingests rollouts)           | `--db`, `--rollouts`, `--last <Nd|Nh>`, `--today`, `--from <YYYY-MM-DD or ISO>`, `--to <YYYY-MM-DD or ISO>`, `--group day|week|month`, `--by model|directory|session`, `--format table|json|csv` |
-| `codex-track export`            | Export raw events (auto-ingests rollouts)                       | `--db`, `--rollouts`, `--format json|csv`, `--out <path>`                                                                                                                                              |
-| `codex-track status`            | Print latest usage snapshot (auto-ingests rollouts)             | `--db`, `--rollouts`                                                                                                                                                                                    |
+| `codex-track report`            | Generate summaries/breakdowns (auto-ingests rollouts)           | `--db`, `--rollouts`, `--last <Nd|Nh>`, `--today`, `--from <YYYY-MM-DD or ISO>`, `--to <YYYY-MM-DD or ISO>`, `--group day|week|month`, `--by model|directory|session`, `--format table|json|csv`, `--timezone <IANA>`, `--no-content/--redact` |
+| `codex-track export`            | Export raw events (auto-ingests rollouts)                       | `--db`, `--rollouts`, `--format json|csv`, `--out <path>`, `--no-content/--redact`                                                                                                                     |
+| `codex-track status`            | Print latest usage snapshot (auto-ingests rollouts)             | `--db`, `--rollouts`, `--no-content/--redact`                                                                                                                                                           |
 | `codex-track web`               | Launch local Next.js dashboard from `ui/`                       | `--db`, `--rollouts`, `--port`, `--no-open`                                                                                                                                                             |
 | `codex-track ui`                | Alias for `codex-track web`                                     | `--db`, `--rollouts`, `--port`, `--no-open`                                                                                                                                                             |
+| `codex-track purge-content`     | Remove stored content messages + tool calls                     | `--db`, `--yes`                                                                                                                                                                                         |
 | `codex-track ingest-cli`        | Parse Codex CLI logs for `/status` and final “Token usage” line | `--db`, `--log <path or ->`                                                                                                                                                                             |
 | `codex-track ingest-app-server` | Parse app-server JSON-RPC logs and write timings/metadata       | `--db`, `--log <path or ->`                                                                                                                                                                             |
 | `codex-track clear-db`          | Delete the local DB (prompts unless `--yes`)                    | `--db`, `--yes`                                                                                                                                                                                         |
@@ -163,6 +196,13 @@ Some documentation claims **“no prompt/response content is stored,”** but th
 
 If you are operating under a “no content stored” assumption, treat this as a **privacy-impacting discrepancy** and review how/where you run ingestion and where the resulting SQLite DB is stored and backed up.
 
+### Privacy controls
+
+If you want to avoid storing prompt/response content:
+
+* Use `--no-content` (or `--redact`) with `report`, `export`, or `status` to skip writing `content_messages` and `tool_calls`.
+* Run `codex-track purge-content` to remove already stored content from the DB.
+
 ## Configuration
 
 ### Default paths
@@ -181,7 +221,13 @@ Overrides:
 
 ### Timezone
 
-Reports and timestamps use **`Europe/Stockholm`** as the local timezone.
+Reports and the UI use a configurable local timezone.
+
+* **Default:** `Europe/Stockholm`
+* **UI:** Settings → Timezone (persists to `config.json`)
+* **CLI:** `codex-track report --timezone America/Los_Angeles` (one-off override)
+
+Note: stored local timestamps reflect the timezone in effect at ingestion time. If you change the timezone and want historical data to shift, re-ingest.
 
 ### Weekly quota estimates
 
@@ -196,6 +242,7 @@ When provided, `codex-track web` (or `codex-track ui`) sets:
 
 * `CODEX_USAGE_DB`
 * `CODEX_USAGE_ROLLOUTS`
+* `CODEX_USAGE_CONFIG` (override config path for pricing + currency label)
 
 ## Pricing and Cost Estimation
 

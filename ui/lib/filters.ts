@@ -1,3 +1,5 @@
+import { normalizeTimeZone, toZonedIso } from "@/lib/timezone";
+
 export type BucketOption = "auto" | "hour" | "day";
 
 export type Filters = {
@@ -22,12 +24,14 @@ const splitCsv = (value: string | null) =>
 
 const joinCsv = (value: string[]) => value.join(",");
 
-export const getDefaultFilters = () => {
+export const getDefaultFilters = (timezone?: string) => {
+  const tz = normalizeTimeZone(timezone);
   const now = new Date();
-  const to = now.toISOString();
-  const from = new Date(
-    now.getTime() - DEFAULT_RANGE_DAYS * 24 * 60 * 60 * 1000
-  ).toISOString();
+  const to = toZonedIso(now, tz);
+  const from = toZonedIso(
+    new Date(now.getTime() - DEFAULT_RANGE_DAYS * 24 * 60 * 60 * 1000),
+    tz
+  );
 
   return {
     from,

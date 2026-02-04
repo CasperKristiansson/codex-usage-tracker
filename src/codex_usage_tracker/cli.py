@@ -11,9 +11,9 @@ from pathlib import Path
 from typing import Callable, Dict, Iterable, Optional, Tuple
 from zoneinfo import ZoneInfo
 
+from .config import DEFAULT_TIMEZONE, is_valid_timezone, resolve_timezone
 from .platform import default_db_path, default_rollouts_dir
 from .report import (
-    STOCKHOLM_TZ,
     PricingConfig,
     aggregate,
     compute_costs,
@@ -121,13 +121,14 @@ def _select_rollout_files(
     root: Path,
     start: Optional[datetime],
     end: Optional[datetime],
+    tz: ZoneInfo,
 ) -> Iterable[Tuple[Path, int, int, datetime]]:
     for path in iter_rollout_files(root):
         try:
             stat = path.stat()
         except OSError:
             continue
-        mtime = datetime.fromtimestamp(stat.st_mtime, tz=STOCKHOLM_TZ)
+        mtime = datetime.fromtimestamp(stat.st_mtime, tz=tz)
         if start and mtime < start:
             continue
         if end and mtime > end:
@@ -148,6 +149,7 @@ def ingest_rollouts(
     store: UsageStore,
     start: Optional[datetime],
     end: Optional[datetime],
+    tz: ZoneInfo,
     progress_callback: Optional[
         Callable[[IngestStats, int, int, Optional[Path]], None]
     ] = None,
@@ -159,7 +161,7 @@ def ingest_rollouts(
     store.ensure_ingest_version()
     stats = IngestStats()
     stats.started_at = time.time()
-    files = list(_select_rollout_files(path, start, end))
+    files = list(_select_rollout_files(path, start, end, tz))
     stats.files_total = len(files)
     progress = ProgressPrinter(stats.files_total)
     turn_counters: Dict[str, int] = {}
@@ -247,7 +249,7 @@ def ingest_rollouts(
                             continue
                         stats.lines += 1
                         try:
-                            parsed, context = parse_rollout_line(raw, context)
+                            parsed, context = parse_rollout_line(raw, context, tz)
                         except Exception as exc:
                             _record_error(file_path, line_number, raw, exc)
                             continue
@@ -516,6 +518,7 @@ def ingest_rollouts(
 def ingest_cli_output(
     log_path: Path,
     store: UsageStore,
+    tz: ZoneInfo,
 ) -> CliLogStats:
     stats = CliLogStats()
     capture = StatusCapture()
@@ -532,7 +535,7 @@ def ingest_cli_output(
 
     def _handle_snapshot(snapshot) -> None:
         nonlocal stats
-        captured_at = datetime.now(STOCKHOLM_TZ)
+        captured_at = datetime.now(tz)
         limit_5h_percent_left, limit_5h_resets_at, limit_weekly_percent_left, limit_weekly_resets_at = map_limits(snapshot)
         token_usage = snapshot.token_usage or {}
         context_window = snapshot.context_window or {}
@@ -563,7 +566,7 @@ def ingest_cli_output(
 
     def _handle_usage(tokens: Dict[str, int]) -> None:
         nonlocal stats
-        captured_at = datetime.now(STOCKHOLM_TZ)
+        captured_at = datetime.now(tz)
         event = UsageEvent(
             captured_at=captured_at.isoformat(),
             captured_at_utc=captured_at.astimezone(ZoneInfo("UTC")).isoformat(),
@@ -615,11 +618,15 @@ def _filter_range(
     events: Iterable[Dict[str, object]],
     start: Optional[datetime],
     end: Optional[datetime],
+    tz: ZoneInfo,
 ) -> Iterable[Dict[str, object]]:
     filtered = []
     for event in events:
-        captured_at = parse_datetime(event["captured_at"])
-        local_dt = to_local(captured_at)
+        captured_raw = event.get("captured_at_utc") or event.get("captured_at")
+        if not captured_raw:
+            continue
+        captured_at = parse_datetime(str(captured_raw))
+        local_dt = to_local(captured_at, tz)
         if start and local_dt < start:
             continue
         if end and local_dt > end:
@@ -683,9 +690,10 @@ def _estimate_weekly_quota(
     store: UsageStore,
     now: datetime,
     pricing: Optional[PricingConfig] = None,
+    tz: ZoneInfo = ZoneInfo(DEFAULT_TIMEZONE),
 ) -> Optional[Dict[str, object]]:
     week_start, week_end = _last_completed_week(now)
-    rows = store.iter_events(start=week_start.isoformat(), end=week_end.isoformat())
+    rows = store.iter_events()
     events = [dict(row) for row in rows]
     if not events:
         return None
@@ -694,7 +702,7 @@ def _estimate_weekly_quota(
         for event in events
         if event.get("event_type") in ("usage_line", "token_count")
     ]
-    events = _filter_range(events, week_start, week_end)
+    events = _filter_range(events, week_start, week_end, tz)
     if not events:
         return None
 
@@ -816,6 +824,12 @@ def build_parser() -> argparse.ArgumentParser:
     report_parser.add_argument("--from", dest="from_date", type=str, default=None)
     report_parser.add_argument("--to", dest="to_date", type=str, default=None)
     report_parser.add_argument(
+        "--timezone",
+        type=str,
+        default=None,
+        help=f"Timezone for report ranges (IANA name, default {DEFAULT_TIMEZONE})",
+    )
+    report_parser.add_argument(
         "--group", choices=["day", "week", "month"], default="day"
     )
     report_parser.add_argument(
@@ -896,6 +910,7 @@ def _ingest_for_range(
     store: UsageStore,
     start: Optional[datetime],
     end: Optional[datetime],
+    tz: ZoneInfo,
 ) -> None:
     rollouts_dir = args.rollouts if args.rollouts else default_rollouts_dir()
     ingest_rollouts(
@@ -903,6 +918,7 @@ def _ingest_for_range(
         store,
         start,
         end,
+        tz,
         verbose=args.verbose,
         strict=args.strict,
         no_content=args.no_content,
@@ -914,6 +930,14 @@ def main() -> None:
     args = parser.parse_args()
     db_path = args.db if args.db else default_db_path()
     store = UsageStore(db_path)
+    tz_override = getattr(args, "timezone", None)
+    if tz_override:
+        if not is_valid_timezone(tz_override):
+            parser.error(
+                f"Invalid --timezone '{tz_override}'. Expected an IANA timezone like "
+                f"{DEFAULT_TIMEZONE}."
+            )
+    tz = resolve_timezone(db_path, tz_override)
 
     if args.command == "clear-db":
         path = args.db if args.db else default_db_path()
@@ -948,7 +972,7 @@ def main() -> None:
         return
 
     if args.command == "report":
-        now = datetime.now(STOCKHOLM_TZ)
+        now = datetime.now(tz)
         start = None
         end = None
         if args.today:
@@ -962,19 +986,19 @@ def main() -> None:
             end = now
         else:
             if args.from_date:
-                start = to_local(parse_datetime(args.from_date))
+                start = to_local(parse_datetime(args.from_date), tz)
             if args.to_date:
-                end = to_local(parse_datetime(args.to_date))
+                end = to_local(parse_datetime(args.to_date), tz)
 
-        _ingest_for_range(args, store, start, end)
+        _ingest_for_range(args, store, start, end, tz)
         pricing, currency_label = load_pricing_config(db_path)
-        weekly_quota = _estimate_weekly_quota(store, now, pricing)
+        weekly_quota = _estimate_weekly_quota(store, now, pricing, tz)
         if weekly_quota is None:
             latest_quota = store.latest_weekly_quota()
             weekly_quota = dict(latest_quota) if latest_quota else None
         events = _load_usage_events(store)
-        events = _filter_range(events, start, end)
-        rows = aggregate(events, args.group, args.by, pricing=pricing)
+        events = _filter_range(events, start, end, tz)
+        rows = aggregate(events, args.group, args.by, pricing=pricing, tz=tz)
         include_group = args.by is not None
         if args.format == "table":
             output = render_table(rows, include_group, currency_label)
@@ -991,7 +1015,7 @@ def main() -> None:
         return
 
     if args.command == "export":
-        _ingest_for_range(args, store, None, None)
+        _ingest_for_range(args, store, None, None, tz)
         rows = [dict(row) for row in store.iter_events()]
         if args.format == "json":
             output = export_events_json(rows)
@@ -1002,7 +1026,7 @@ def main() -> None:
         return
 
     if args.command == "status":
-        _ingest_for_range(args, store, None, None)
+        _ingest_for_range(args, store, None, None, tz)
         row = store.latest_status()
         if not row:
             print("No usage data captured yet.")
@@ -1013,7 +1037,7 @@ def main() -> None:
         return
 
     if args.command == "ingest-cli":
-        stats = ingest_cli_output(args.log, store)
+        stats = ingest_cli_output(args.log, store, tz)
         store.close()
         print(
             f"Ingested {stats.lines} lines: {stats.status_snapshots} status snapshots, "
@@ -1022,7 +1046,7 @@ def main() -> None:
         return
 
     if args.command == "ingest-app-server":
-        stats = ingest_app_server_output(args.log, store)
+        stats = ingest_app_server_output(args.log, store, tz)
         store.close()
         print(
             f"Ingested {stats.lines} lines: {stats.turns} turns, "

@@ -32,7 +32,7 @@ export const GET = (request: NextRequest) => {
     const offset = (page - 1) * pageSize;
 
     const base = buildWhere(filters, {
-      timeColumn: "e.captured_at_utc",
+      timeColumn: "e.captured_at",
       modelColumn: "e.model",
       dirColumn: "e.directory",
       sourceColumn: "e.source"

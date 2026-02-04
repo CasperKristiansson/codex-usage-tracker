@@ -32,7 +32,7 @@ export const GET = (request: NextRequest) => {
       return jsonResponse({ bucket: filters.resolvedBucket, rows: [] });
     }
 
-    const bucketExpr = bucketExpression(filters.resolvedBucket, "tc.captured_at_utc");
+    const bucketExpr = bucketExpression(filters.resolvedBucket, "tc.captured_at");
 
     const rows = db
       .prepare(

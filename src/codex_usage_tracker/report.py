@@ -8,9 +8,10 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
+from .config import DEFAULT_TIMEZONE
 from .platform import default_config_path
 
-STOCKHOLM_TZ = ZoneInfo("Europe/Stockholm")
+DEFAULT_TZ = ZoneInfo(DEFAULT_TIMEZONE)
 DEFAULT_CURRENCY_LABEL = "$"
 
 
@@ -214,14 +215,14 @@ def parse_last(value: str) -> timedelta:
     raise ValueError("Invalid --last value, expected Nd/Nh/Nm")
 
 
-def to_local(dt: datetime) -> datetime:
+def to_local(dt: datetime, tz: ZoneInfo = DEFAULT_TZ) -> datetime:
     if dt.tzinfo is None:
-        return dt.replace(tzinfo=STOCKHOLM_TZ)
-    return dt.astimezone(STOCKHOLM_TZ)
+        return dt.replace(tzinfo=tz)
+    return dt.astimezone(tz)
 
 
-def period_key(dt: datetime, group: str) -> str:
-    local_dt = to_local(dt)
+def period_key(dt: datetime, group: str, tz: ZoneInfo = DEFAULT_TZ) -> str:
+    local_dt = to_local(dt, tz)
     if group == "day":
         return local_dt.strftime("%Y-%m-%d")
     if group == "week":
@@ -237,12 +238,16 @@ def aggregate(
     group: str,
     by: Optional[str] = None,
     pricing: Optional[PricingConfig] = None,
+    tz: ZoneInfo = DEFAULT_TZ,
 ) -> List[ReportRow]:
     buckets: Dict[Tuple[str, str], ReportRow] = {}
 
     for event in events:
-        captured_at = parse_datetime(event["captured_at"])
-        key = period_key(captured_at, group)
+        captured_raw = event.get("captured_at_utc") or event.get("captured_at")
+        if not captured_raw:
+            continue
+        captured_at = parse_datetime(str(captured_raw))
+        key = period_key(captured_at, group, tz)
         if by == "model":
             group_key = event.get("model") or "<unknown>"
         elif by == "directory":

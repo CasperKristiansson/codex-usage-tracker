@@ -29,12 +29,7 @@ import { useApi } from "@/lib/hooks/use-api";
 import { useEndpoint } from "@/lib/hooks/use-endpoint";
 import { useFilters } from "@/lib/hooks/use-filters";
 import { useSettings } from "@/lib/hooks/use-settings";
-
-const formatTimestamp = (value: string) => {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString();
-};
+import { formatTimestamp } from "@/lib/timezone";
 
 type ToolCallSample = {
   rows: Array<{
@@ -386,7 +381,7 @@ export default function ToolsPage() {
                       ) : null}
                     </div>
                     <span className="text-muted-foreground">
-                      {formatTimestamp(row.captured_at_utc)}
+                      {formatTimestamp(row.captured_at_utc, settings.timezone)}
                     </span>
                   </div>
                   <div className="mt-2 text-[11px] text-muted-foreground">

@@ -3,7 +3,9 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional, Tuple
-from .report import STOCKHOLM_TZ
+from zoneinfo import ZoneInfo
+
+from .config import DEFAULT_TIMEZONE
 from .store import AppItemMetric, AppTurnMetric, UsageStore
 
 
@@ -16,8 +18,11 @@ class AppServerStats:
     errors: int = 0
 
 
-def _now() -> datetime:
-    return datetime.now(STOCKHOLM_TZ)
+DEFAULT_TZ = ZoneInfo(DEFAULT_TIMEZONE)
+
+
+def _now(tz: ZoneInfo) -> datetime:
+    return datetime.now(tz)
 
 
 def _duration_ms(start: Optional[datetime], end: Optional[datetime]) -> Optional[int]:
@@ -85,7 +90,11 @@ def _web_action_from_response_item(item: Dict[str, object]) -> Optional[str]:
     return "".join(normalized).lower()
 
 
-def ingest_app_server_output(log_path: Path, store: UsageStore) -> AppServerStats:
+def ingest_app_server_output(
+    log_path: Path,
+    store: UsageStore,
+    tz: ZoneInfo = DEFAULT_TZ,
+) -> AppServerStats:
     stats = AppServerStats()
     stat_info = None
     if log_path.name != "-":
@@ -128,7 +137,7 @@ def ingest_app_server_output(log_path: Path, store: UsageStore) -> AppServerStat
                 params = data.get("params") if isinstance(data.get("params"), dict) else {}
                 if not isinstance(method, str):
                     continue
-                now = _now()
+                now = _now(tz)
 
                 if method == "turn/started":
                     thread_id = _get_id(params, "threadId")
@@ -260,7 +269,7 @@ def ingest_app_server_output(log_path: Path, store: UsageStore) -> AppServerStat
                 params = data.get("params") if isinstance(data.get("params"), dict) else {}
                 if not isinstance(method, str):
                     continue
-                now = _now()
+                now = _now(tz)
 
                 if method == "turn/started":
                     thread_id = _get_id(params, "threadId")

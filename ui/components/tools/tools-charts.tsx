@@ -15,6 +15,7 @@ import { ChartTooltip } from "@/components/charts/chart-tooltip";
 import { LegendInline } from "@/components/charts/legend-inline";
 import { SERIES_COLORS, formatBucketLabel, safeNumber, uniqueBuckets } from "@/lib/charts";
 import { formatCompactNumber, formatDuration } from "@/lib/format";
+import { useSettings } from "@/lib/hooks/use-settings";
 
 export type ToolTypeCounts = {
   rows: Array<{ tool_type: string; count: number }>;
@@ -92,6 +93,8 @@ export const ToolTrendChart = ({
   data: ToolTrend;
   visibleKeys?: string[];
 }) => {
+  const { settings } = useSettings();
+  const timeZone = settings.timezone;
   const { rows, keys, totals } = useMemo(() => {
     const series: Record<string, Array<{ bucket: string; value: number }>> = {};
     data.rows.forEach((row) => {
@@ -129,7 +132,9 @@ export const ToolTrendChart = ({
             <CartesianGrid stroke="hsl(var(--border) / 0.2)" vertical={false} />
             <XAxis
               dataKey="bucket"
-              tickFormatter={(value) => formatBucketLabel(String(value), data.bucket)}
+              tickFormatter={(value) =>
+                formatBucketLabel(String(value), data.bucket, timeZone)
+              }
               tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
               axisLine={false}
               tickLine={false}
@@ -145,7 +150,9 @@ export const ToolTrendChart = ({
               {...TOOLTIP_STYLE}
               content={
                 <ChartTooltip
-                  labelFormatter={(value) => formatBucketLabel(value, data.bucket)}
+                  labelFormatter={(value) =>
+                    formatBucketLabel(value, data.bucket, timeZone)
+                  }
                 />
               }
             />

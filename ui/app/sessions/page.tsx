@@ -16,6 +16,7 @@ import { formatCompactNumber } from "@/lib/format";
 import { useApi } from "@/lib/hooks/use-api";
 import { useFilters } from "@/lib/hooks/use-filters";
 import { useSettings } from "@/lib/hooks/use-settings";
+import { formatTimestamp } from "@/lib/timezone";
 
 export type SessionsList = {
   page: number;
@@ -41,13 +42,6 @@ type SavedView = {
 };
 
 const STORAGE_KEY = "cut.sessions.views";
-
-const formatTimestamp = (value: string | null) => {
-  if (!value) return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString();
-};
 
 export default function SessionsPage() {
   const { filters } = useFilters();
@@ -376,7 +370,7 @@ export default function SessionsPage() {
                               <span className="truncate">{row.cwd ?? "—"}</span>
                             </td>
                             <td className="px-3 py-2 text-muted-foreground">
-                              {formatTimestamp(row.last_seen)}
+                              {formatTimestamp(row.last_seen, settings.timezone)}
                             </td>
                             <td className="px-3 py-2 text-right font-mono">
                               {formatCompactNumber(row.total_tokens)}

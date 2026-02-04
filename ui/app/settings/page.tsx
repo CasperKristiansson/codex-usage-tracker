@@ -20,6 +20,7 @@ import {
   type PricingSettings
 } from "@/lib/pricing";
 import { formatCurrency } from "@/lib/format";
+import { DEFAULT_TIMEZONE, formatTimestamp } from "@/lib/timezone";
 
 const densityOptions = [
   { value: "comfortable", label: "Comfortable" },
@@ -40,17 +41,17 @@ type DbInfo = {
   error?: string | null;
 };
 
-const formatTimestamp = (value?: string | null) => {
-  if (!value) return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString();
+type TimezoneSettings = {
+  timezone: string;
 };
 
 export default function SettingsPage() {
   const { settings, updateSettings, resetSettings } = useSettings();
   const dbInfo = useApi<DbInfo>("/api/settings/db_info", { ttl: 60_000 });
   const pricingSettings = useApi<PricingSettings>("/api/settings/pricing", {
+    ttl: 60_000
+  });
+  const timezoneSettings = useApi<TimezoneSettings>("/api/settings/timezone", {
     ttl: 60_000
   });
 
@@ -61,10 +62,24 @@ export default function SettingsPage() {
   const [currencyLabel, setCurrencyLabel] = useState(DEFAULT_CURRENCY_LABEL);
   const [isSavingPricing, setIsSavingPricing] = useState(false);
   const [pricingError, setPricingError] = useState<string | null>(null);
+  const [timezoneDraft, setTimezoneDraft] = useState(settings.timezone);
+  const [isSavingTimezone, setIsSavingTimezone] = useState(false);
+  const [timezoneError, setTimezoneError] = useState<string | null>(null);
 
   useEffect(() => {
     setDbInput(settings.dbPath);
   }, [settings.dbPath]);
+
+  useEffect(() => {
+    if (!timezoneSettings.data?.timezone) return;
+    if (timezoneSettings.data.timezone !== settings.timezone) {
+      updateSettings({ timezone: timezoneSettings.data.timezone });
+    }
+  }, [timezoneSettings.data, settings.timezone, updateSettings]);
+
+  useEffect(() => {
+    setTimezoneDraft(settings.timezone);
+  }, [settings.timezone]);
 
   useEffect(() => {
     if (!pricingSettings.data) return;
@@ -99,6 +114,15 @@ export default function SettingsPage() {
     }
     const query = params.toString();
     return query ? `/api/settings/pricing?${query}` : "/api/settings/pricing";
+  };
+
+  const buildTimezoneUrl = () => {
+    const params = new URLSearchParams();
+    if (settings.dbPath?.trim()) {
+      params.set("db", settings.dbPath.trim());
+    }
+    const query = params.toString();
+    return query ? `/api/settings/timezone?${query}` : "/api/settings/timezone";
   };
 
   const updateRate = (
@@ -159,6 +183,37 @@ export default function SettingsPage() {
     });
   };
 
+  const handleSaveTimezone = async () => {
+    setIsSavingTimezone(true);
+    setTimezoneError(null);
+    try {
+      const res = await fetch(buildTimezoneUrl(), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ timezone: timezoneDraft })
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || "Failed to save timezone settings");
+      }
+      const saved = (await res.json()) as TimezoneSettings;
+      updateSettings({ timezone: saved.timezone });
+      timezoneSettings.refetch();
+    } catch (error) {
+      setTimezoneError(
+        error instanceof Error ? error.message : "Failed to save timezone settings"
+      );
+    } finally {
+      setIsSavingTimezone(false);
+    }
+  };
+
+  const handleUseBrowserTimezone = () => {
+    const browserTz =
+      Intl.DateTimeFormat().resolvedOptions().timeZone || DEFAULT_TIMEZONE;
+    setTimezoneDraft(browserTz);
+  };
+
   const activeInfo = testInfo ?? dbInfo.data ?? null;
 
   return (
@@ -208,7 +263,10 @@ export default function SettingsPage() {
                   </span>
                   {activeInfo.last_ingested_at ? (
                     <span>
-                      Last ingested: <span className="text-foreground">{formatTimestamp(activeInfo.last_ingested_at)}</span>
+                      Last ingested:{" "}
+                      <span className="text-foreground">
+                        {formatTimestamp(activeInfo.last_ingested_at, settings.timezone)}
+                      </span>
                     </span>
                   ) : null}
                 </div>
@@ -232,6 +290,56 @@ export default function SettingsPage() {
                   <div className="mt-3 text-rose-400">{activeInfo.error}</div>
                 ) : null}
               </div>
+            ) : null}
+          </div>
+        )}
+      </CardPanel>
+
+      <CardPanel title="Timezone" subtitle="Reporting and charts">
+        {timezoneSettings.isLoading ? (
+          <Skeleton className="h-24 w-full" />
+        ) : timezoneSettings.error ? (
+          <ErrorState onRetry={timezoneSettings.refetch} />
+        ) : (
+          <div className="space-y-3">
+            <div className="space-y-2">
+              <label className="text-xs text-muted-foreground">IANA timezone</label>
+              <Input
+                value={timezoneDraft}
+                onChange={(event) => setTimezoneDraft(event.target.value)}
+                placeholder={DEFAULT_TIMEZONE}
+              />
+              <p className="text-xs text-muted-foreground">
+                Example: <span className="text-foreground">America/Los_Angeles</span>
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                onClick={handleSaveTimezone}
+                disabled={isSavingTimezone}
+              >
+                {isSavingTimezone ? "Saving" : "Save timezone"}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setTimezoneDraft(DEFAULT_TIMEZONE)}
+                disabled={isSavingTimezone}
+              >
+                Reset default
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleUseBrowserTimezone}
+                disabled={isSavingTimezone}
+              >
+                Use browser timezone
+              </Button>
+            </div>
+            {timezoneError ? (
+              <div className="text-xs text-rose-400">{timezoneError}</div>
             ) : null}
           </div>
         )}
