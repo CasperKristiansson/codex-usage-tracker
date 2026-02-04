@@ -228,7 +228,13 @@ export const VolumeChart = ({
   );
 };
 
-export const CostChart = ({ data }: { data: CostTimeseries }) => {
+export const CostChart = ({
+  data,
+  currencyLabel = "$"
+}: {
+  data: CostTimeseries;
+  currencyLabel?: string;
+}) => {
   const chartData = useMemo(
     () =>
       data.rows.map((row) => ({
@@ -258,7 +264,7 @@ export const CostChart = ({ data }: { data: CostTimeseries }) => {
             tickLine={false}
           />
           <YAxis
-            tickFormatter={(value) => formatCurrency(Number(value), true)}
+            tickFormatter={(value) => formatCurrency(Number(value), true, currencyLabel)}
             tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
             axisLine={false}
             tickLine={false}
@@ -269,7 +275,7 @@ export const CostChart = ({ data }: { data: CostTimeseries }) => {
             content={
               <ChartTooltip
                 labelFormatter={(value) => formatBucketLabel(String(value), data.bucket)}
-                valueFormatter={(value) => formatCurrency(Number(value))}
+                valueFormatter={(value) => formatCurrency(Number(value), false, currencyLabel)}
               />
             }
           />

@@ -14,11 +14,13 @@ from zoneinfo import ZoneInfo
 from .platform import default_db_path, default_rollouts_dir
 from .report import (
     STOCKHOLM_TZ,
+    PricingConfig,
     aggregate,
     compute_costs,
     default_pricing,
     export_events_csv,
     export_events_json,
+    load_pricing_config,
     parse_datetime,
     parse_last,
     render_csv,
@@ -680,6 +682,7 @@ def _last_completed_week(now: datetime) -> Tuple[datetime, datetime]:
 def _estimate_weekly_quota(
     store: UsageStore,
     now: datetime,
+    pricing: Optional[PricingConfig] = None,
 ) -> Optional[Dict[str, object]]:
     week_start, week_end = _last_completed_week(now)
     rows = store.iter_events(start=week_start.isoformat(), end=week_end.isoformat())
@@ -696,7 +699,8 @@ def _estimate_weekly_quota(
         return None
 
     total_tokens = sum(int(event.get("total_tokens") or 0) for event in events)
-    total_cost, _, _, _ = compute_costs(events, default_pricing())
+    pricing = pricing if pricing is not None else default_pricing()
+    total_cost, _, _, _ = compute_costs(events, pricing)
     if total_tokens <= 0:
         return None
 
@@ -963,16 +967,17 @@ def main() -> None:
                 end = to_local(parse_datetime(args.to_date))
 
         _ingest_for_range(args, store, start, end)
-        weekly_quota = _estimate_weekly_quota(store, now)
+        pricing, currency_label = load_pricing_config(db_path)
+        weekly_quota = _estimate_weekly_quota(store, now, pricing)
         if weekly_quota is None:
             latest_quota = store.latest_weekly_quota()
             weekly_quota = dict(latest_quota) if latest_quota else None
         events = _load_usage_events(store)
         events = _filter_range(events, start, end)
-        rows = aggregate(events, args.group, args.by, pricing=default_pricing())
+        rows = aggregate(events, args.group, args.by, pricing=pricing)
         include_group = args.by is not None
         if args.format == "table":
-            output = render_table(rows, include_group)
+            output = render_table(rows, include_group, currency_label)
             if weekly_quota and weekly_quota.get("quota_tokens"):
                 range_tokens = sum(int(event.get("total_tokens") or 0) for event in events)
                 percent_used = (range_tokens / weekly_quota["quota_tokens"]) * 100.0

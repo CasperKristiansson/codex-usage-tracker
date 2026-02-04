@@ -208,6 +208,32 @@ Reports estimate cost using built-in pricing **per 1M tokens**:
 | `gpt-5.1-codex`     |  1.25 |        0.125 |  10.00 |
 | `gpt-5.2-codex`     |  1.75 |        0.175 |  14.00 |
 
+### Pricing overrides
+
+You can override per-model pricing and the currency label via a local config file.
+
+* **Default config path:** `config.json` in the same directory as your SQLite DB.
+* **Override config path:** set `CODEX_USAGE_CONFIG=/path/to/config.json`
+
+Example:
+
+```json
+{
+  "currency_label": "USD",
+  "pricing": {
+    "models": {
+      "gpt-5.2": {
+        "input_rate": 1.75,
+        "cached_input_rate": 0.175,
+        "output_rate": 14.0
+      }
+    }
+  }
+}
+```
+
+The dashboard Settings page lets you edit pricing overrides and the currency label without touching the config file.
+
 ## Development
 
 Run tests:

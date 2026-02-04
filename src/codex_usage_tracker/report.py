@@ -4,10 +4,14 @@ import json
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
+from .platform import default_config_path
+
 STOCKHOLM_TZ = ZoneInfo("Europe/Stockholm")
+DEFAULT_CURRENCY_LABEL = "$"
 
 
 @dataclass
@@ -64,6 +68,92 @@ def default_pricing() -> PricingConfig:
             ),
         },
     )
+
+
+def _coerce_rate(value: object) -> Optional[float]:
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value.strip())
+        except ValueError:
+            return None
+    return None
+
+
+def load_pricing_config(
+    db_path: Optional[Path] = None,
+) -> Tuple[PricingConfig, str]:
+    pricing = default_pricing()
+    currency_label = DEFAULT_CURRENCY_LABEL
+    config_path = default_config_path(db_path)
+    try:
+        raw = config_path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return pricing, currency_label
+    except OSError:
+        return pricing, currency_label
+
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return pricing, currency_label
+    if not isinstance(payload, dict):
+        return pricing, currency_label
+
+    label = (
+        payload.get("currency_label")
+        or payload.get("currencyLabel")
+        or payload.get("currency")
+    )
+    if isinstance(label, str) and label.strip():
+        currency_label = label.strip()
+
+    pricing_payload = payload.get("pricing") if isinstance(payload.get("pricing"), dict) else payload
+    if not isinstance(pricing_payload, dict):
+        return pricing, currency_label
+
+    per_unit = pricing_payload.get("per_unit")
+    if isinstance(per_unit, (int, float)) and per_unit > 0:
+        pricing.per_unit = int(per_unit)
+
+    unit = pricing_payload.get("unit")
+    if isinstance(unit, str) and unit.strip():
+        pricing.unit = unit.strip()
+
+    models = pricing_payload.get("models")
+    if isinstance(models, dict):
+        updated = dict(pricing.models)
+        for model_name, override in models.items():
+            if not isinstance(model_name, str):
+                continue
+            if not isinstance(override, dict):
+                continue
+            base = updated.get(model_name) or PricingModel(
+                input_rate=0.0,
+                cached_input_rate=0.0,
+                output_rate=0.0,
+            )
+            input_rate = _coerce_rate(override.get("input_rate"))
+            cached_rate = _coerce_rate(override.get("cached_input_rate"))
+            output_rate = _coerce_rate(override.get("output_rate"))
+            if (
+                input_rate is None
+                and cached_rate is None
+                and output_rate is None
+                and model_name not in updated
+            ):
+                continue
+            updated[model_name] = PricingModel(
+                input_rate=input_rate if input_rate is not None else base.input_rate,
+                cached_input_rate=cached_rate
+                if cached_rate is not None
+                else base.cached_input_rate,
+                output_rate=output_rate if output_rate is not None else base.output_rate,
+            )
+        pricing.models = updated
+
+    return pricing, currency_label
 
 
 def estimate_event_cost(
@@ -189,7 +279,23 @@ def aggregate(
     return sorted(buckets.values(), key=lambda r: (r.period, r.group))
 
 
-def render_table(rows: List[ReportRow], include_group: bool) -> str:
+def _format_currency(value: float, currency_label: str) -> str:
+    label = currency_label.strip() if currency_label else ""
+    formatted = f"{value:,.2f}"
+    if not label:
+        return formatted
+    if len(label) == 1:
+        return f"{label}{formatted}"
+    if label.endswith(" "):
+        return f"{label}{formatted}"
+    return f"{label} {formatted}"
+
+
+def render_table(
+    rows: List[ReportRow],
+    include_group: bool,
+    currency_label: str = DEFAULT_CURRENCY_LABEL,
+) -> str:
     headers = ["Period"]
     if include_group:
         headers.append("Group")
@@ -206,7 +312,7 @@ def render_table(rows: List[ReportRow], include_group: bool) -> str:
             f"{row.cached_input_tokens:,}",
             f"{row.output_tokens:,}",
             f"{row.reasoning_output_tokens:,}",
-            f"${row.estimated_cost:,.2f}",
+            _format_currency(row.estimated_cost, currency_label),
         ]
         data_rows.append(values)
 

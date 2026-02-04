@@ -10,6 +10,13 @@ export type PricingConfig = {
   models: Record<string, PricingModel>;
 };
 
+export type PricingSettings = {
+  currency_label: string;
+  pricing: PricingConfig;
+};
+
+export const DEFAULT_CURRENCY_LABEL = "$";
+
 export const DEFAULT_PRICING: PricingConfig = {
   unit: "per_1m",
   per_unit: 1_000_000,

@@ -13,7 +13,12 @@ import ThemeToggle from "@/components/layout/theme-toggle";
 import { isEmptyResponse } from "@/lib/data";
 import { useApi } from "@/lib/hooks/use-api";
 import { useSettings } from "@/lib/hooks/use-settings";
-import { DEFAULT_PRICING } from "@/lib/pricing";
+import {
+  DEFAULT_CURRENCY_LABEL,
+  DEFAULT_PRICING,
+  type PricingConfig,
+  type PricingSettings
+} from "@/lib/pricing";
 import { formatCurrency } from "@/lib/format";
 
 const densityOptions = [
@@ -45,14 +50,27 @@ const formatTimestamp = (value?: string | null) => {
 export default function SettingsPage() {
   const { settings, updateSettings, resetSettings } = useSettings();
   const dbInfo = useApi<DbInfo>("/api/settings/db_info", { ttl: 60_000 });
+  const pricingSettings = useApi<PricingSettings>("/api/settings/pricing", {
+    ttl: 60_000
+  });
 
   const [dbInput, setDbInput] = useState(settings.dbPath);
   const [testInfo, setTestInfo] = useState<DbInfo | null>(null);
   const [isTesting, setIsTesting] = useState(false);
+  const [pricingDraft, setPricingDraft] = useState<PricingConfig>(DEFAULT_PRICING);
+  const [currencyLabel, setCurrencyLabel] = useState(DEFAULT_CURRENCY_LABEL);
+  const [isSavingPricing, setIsSavingPricing] = useState(false);
+  const [pricingError, setPricingError] = useState<string | null>(null);
 
   useEffect(() => {
     setDbInput(settings.dbPath);
   }, [settings.dbPath]);
+
+  useEffect(() => {
+    if (!pricingSettings.data) return;
+    setPricingDraft(pricingSettings.data.pricing);
+    setCurrencyLabel(pricingSettings.data.currency_label);
+  }, [pricingSettings.data]);
 
   const handleTest = async () => {
     setIsTesting(true);
@@ -72,6 +90,73 @@ export default function SettingsPage() {
     } finally {
       setIsTesting(false);
     }
+  };
+
+  const buildPricingUrl = () => {
+    const params = new URLSearchParams();
+    if (settings.dbPath?.trim()) {
+      params.set("db", settings.dbPath.trim());
+    }
+    const query = params.toString();
+    return query ? `/api/settings/pricing?${query}` : "/api/settings/pricing";
+  };
+
+  const updateRate = (
+    model: string,
+    field: "input_rate" | "cached_input_rate" | "output_rate",
+    value: string
+  ) => {
+    const nextValue = value.trim() === "" ? 0 : Number(value);
+    if (!Number.isFinite(nextValue)) return;
+    setPricingDraft((prev) => ({
+      ...prev,
+      models: {
+        ...prev.models,
+        [model]: {
+          ...prev.models[model],
+          [field]: nextValue
+        }
+      }
+    }));
+  };
+
+  const handleSavePricing = async (
+    next?: { currency_label: string; pricing: PricingConfig }
+  ) => {
+    setIsSavingPricing(true);
+    setPricingError(null);
+    const payload = next ?? {
+      currency_label: currencyLabel,
+      pricing: pricingDraft
+    };
+    try {
+      const res = await fetch(buildPricingUrl(), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || "Failed to save pricing settings");
+      }
+      const saved = (await res.json()) as PricingSettings;
+      setPricingDraft(saved.pricing);
+      setCurrencyLabel(saved.currency_label);
+      pricingSettings.refetch();
+    } catch (error) {
+      setPricingError(
+        error instanceof Error ? error.message : "Failed to save pricing settings"
+      );
+    } finally {
+      setIsSavingPricing(false);
+    }
+  };
+
+  const handleResetPricing = async () => {
+    await handleSavePricing({
+      currency_label: DEFAULT_CURRENCY_LABEL,
+      pricing: DEFAULT_PRICING
+    });
   };
 
   const activeInfo = testInfo ?? dbInfo.data ?? null;
@@ -162,34 +247,99 @@ export default function SettingsPage() {
             />
             Show cost estimates in dashboards
           </label>
-          <div className="overflow-hidden rounded-lg border border-border/20">
-            <table className="w-full text-xs">
-              <thead className="bg-muted/40 text-muted-foreground">
-                <tr>
-                  <th className="px-3 py-2 text-left font-medium">Model</th>
-                  <th className="px-3 py-2 text-right font-medium">Input / 1M</th>
-                  <th className="px-3 py-2 text-right font-medium">Cached / 1M</th>
-                  <th className="px-3 py-2 text-right font-medium">Output / 1M</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border/20">
-                {Object.entries(DEFAULT_PRICING.models).map(([model, rates]) => (
-                  <tr key={model}>
-                    <td className="px-3 py-2 text-foreground">{model}</td>
-                    <td className="px-3 py-2 text-right font-mono">
-                      {formatCurrency(rates.input_rate)}
-                    </td>
-                    <td className="px-3 py-2 text-right font-mono">
-                      {formatCurrency(rates.cached_input_rate)}
-                    </td>
-                    <td className="px-3 py-2 text-right font-mono">
-                      {formatCurrency(rates.output_rate)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          {pricingSettings.isLoading ? (
+            <Skeleton className="h-40 w-full" />
+          ) : pricingSettings.error ? (
+            <ErrorState onRetry={pricingSettings.refetch} />
+          ) : (
+            <div className="space-y-3">
+              <div className="grid gap-2 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <label className="text-xs text-muted-foreground">Currency label</label>
+                  <Input
+                    value={currencyLabel}
+                    onChange={(event) => setCurrencyLabel(event.target.value)}
+                    placeholder={DEFAULT_CURRENCY_LABEL}
+                  />
+                </div>
+              </div>
+              <div className="overflow-hidden rounded-lg border border-border/20">
+                <table className="w-full text-xs">
+                  <thead className="bg-muted/40 text-muted-foreground">
+                    <tr>
+                      <th className="px-3 py-2 text-left font-medium">Model</th>
+                      <th className="px-3 py-2 text-right font-medium">Input / 1M</th>
+                      <th className="px-3 py-2 text-right font-medium">Cached / 1M</th>
+                      <th className="px-3 py-2 text-right font-medium">Output / 1M</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/20">
+                    {Object.entries(pricingDraft.models).map(([model, rates]) => (
+                      <tr key={model}>
+                        <td className="px-3 py-2 text-foreground">{model}</td>
+                        <td className="px-3 py-2 text-right font-mono">
+                          <Input
+                            type="number"
+                            step="0.001"
+                            className="h-8 text-right text-xs"
+                            value={rates.input_rate}
+                            onChange={(event) =>
+                              updateRate(model, "input_rate", event.target.value)
+                            }
+                          />
+                        </td>
+                        <td className="px-3 py-2 text-right font-mono">
+                          <Input
+                            type="number"
+                            step="0.001"
+                            className="h-8 text-right text-xs"
+                            value={rates.cached_input_rate}
+                            onChange={(event) =>
+                              updateRate(model, "cached_input_rate", event.target.value)
+                            }
+                          />
+                        </td>
+                        <td className="px-3 py-2 text-right font-mono">
+                          <Input
+                            type="number"
+                            step="0.001"
+                            className="h-8 text-right text-xs"
+                            value={rates.output_rate}
+                            onChange={(event) =>
+                              updateRate(model, "output_rate", event.target.value)
+                            }
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  size="sm"
+                  onClick={() => handleSavePricing()}
+                  disabled={isSavingPricing}
+                >
+                  {isSavingPricing ? "Saving" : "Save pricing"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={handleResetPricing}
+                  disabled={isSavingPricing}
+                >
+                  Reset pricing
+                </Button>
+                <div className="text-xs text-muted-foreground">
+                  Preview: {formatCurrency(1, false, currencyLabel)} / 1M
+                </div>
+              </div>
+              {pricingError ? (
+                <div className="text-xs text-rose-400">{pricingError}</div>
+              ) : null}
+            </div>
+          )}
         </div>
       </CardPanel>
 

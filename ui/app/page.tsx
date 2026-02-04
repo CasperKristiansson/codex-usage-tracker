@@ -48,6 +48,7 @@ import { useApi } from "@/lib/hooks/use-api";
 import { useEndpoint } from "@/lib/hooks/use-endpoint";
 import { useFilters } from "@/lib/hooks/use-filters";
 import { useSettings } from "@/lib/hooks/use-settings";
+import { type PricingSettings } from "@/lib/pricing";
 import { asRoute } from "@/lib/utils";
 
 const volumeOptions: Array<{ value: VolumeMetric; label: string }> = [
@@ -147,6 +148,10 @@ export default function OverviewPage() {
     ...frictionSeries
   ]);
   const [modelShareVisible, setModelShareVisible] = useState<string[]>([]);
+  const pricingSettings = useApi<PricingSettings>("/api/settings/pricing", {
+    ttl: 60_000
+  });
+  const currencyLabel = pricingSettings.data?.currency_label ?? "$";
 
   const kpis = useEndpoint<OverviewKpis>("/api/overview/kpis", filters, {
     ttl: 30_000
@@ -340,10 +345,16 @@ export default function OverviewPage() {
     if (!showCost) return kpiValues;
     return [
       ...kpiValues,
-      formatCurrency(kpis.data?.estimated_cost, true),
+      formatCurrency(kpis.data?.estimated_cost, true, currencyLabel),
       formatPercent(kpis.data?.cost_coverage)
     ];
-  }, [showCost, kpiValues, kpis.data?.estimated_cost, kpis.data?.cost_coverage]);
+  }, [
+    showCost,
+    kpiValues,
+    kpis.data?.estimated_cost,
+    kpis.data?.cost_coverage,
+    currencyLabel
+  ]);
 
   return (
     <div className="space-y-6">
@@ -433,7 +444,7 @@ export default function OverviewPage() {
             {renderPanelState(
               costTimeseries,
               "No cost data for these filters.",
-              (data) => <CostChart data={data} />
+              (data) => <CostChart data={data} currencyLabel={currencyLabel} />
             )}
           </CardPanel>
           <CardPanel
@@ -467,7 +478,9 @@ export default function OverviewPage() {
                     </div>
                     <div className="mt-2 font-mono text-lg">
                       {formatCurrency(
-                        (weeklyQuota.data.row as { quota_cost?: number }).quota_cost
+                        (weeklyQuota.data.row as { quota_cost?: number }).quota_cost,
+                        false,
+                        currencyLabel
                       )}
                     </div>
                   </div>
@@ -487,7 +500,9 @@ export default function OverviewPage() {
                     </div>
                     <div className="mt-2 font-mono text-lg">
                       {formatCurrency(
-                        (weeklyQuota.data.row as { observed_cost?: number }).observed_cost
+                        (weeklyQuota.data.row as { observed_cost?: number }).observed_cost,
+                        false,
+                        currencyLabel
                       )}
                     </div>
                   </div>

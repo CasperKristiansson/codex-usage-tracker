@@ -4,7 +4,8 @@ import { getDb } from "@/lib/server/db";
 import { parseFilters } from "@/lib/server/filters";
 import { applyEventType, bucketExpression, buildWhere, limitBuckets } from "@/lib/server/query";
 import { errorResponse, jsonResponse } from "@/lib/server/response";
-import { DEFAULT_PRICING, estimateCost } from "@/lib/pricing";
+import { estimateCost } from "@/lib/pricing";
+import { loadPricingSettings } from "@/lib/server/pricing";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -48,6 +49,7 @@ export const GET = (request: NextRequest) => {
     const filtered = rows.filter((row) => bucketSet.has(row.bucket));
 
     const bucketTotals = new Map<string, { cost: number; priced: number; total: number }>();
+    const { pricing } = loadPricingSettings(request.nextUrl.searchParams);
 
     filtered.forEach((row) => {
       const bucket = row.bucket;
@@ -56,7 +58,7 @@ export const GET = (request: NextRequest) => {
       }
       const entry = bucketTotals.get(bucket)!;
       entry.total += row.total_tokens ?? 0;
-      const cost = estimateCost(row, DEFAULT_PRICING);
+      const cost = estimateCost(row, pricing);
       if (cost !== null) {
         entry.cost += cost;
         entry.priced += row.total_tokens ?? 0;

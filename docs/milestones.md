@@ -2,7 +2,7 @@
 
 ## Product and Data
 - [x] Add a `--no-content` (or `--redact`) ingestion mode plus `codex-track purge-content` to remove `content_messages` and `tool_calls` while keeping aggregates.
-- [ ] Allow pricing overrides via config or UI settings, including per-model rates and a custom currency label.
+- [x] Allow pricing overrides via config or UI settings, including per-model rates and a custom currency label.
 - [ ] Add timezone configuration for reports and UI (CLI flag + persisted setting).
 - [ ] Implement range comparisons (current range vs previous range with deltas).
 - [ ] Add session tagging/annotations to explain spikes and events.

@@ -27,13 +27,17 @@ export const formatDuration = (value: number | null | undefined) => {
 
 export const formatCurrency = (
   value: number | null | undefined,
-  compact = false
+  compact = false,
+  currencyLabel = "$"
 ) => {
   if (value === null || value === undefined || Number.isNaN(value)) return "—";
-  return new Intl.NumberFormat("en", {
-    style: "currency",
-    currency: "USD",
+  const formatted = new Intl.NumberFormat("en", {
     maximumFractionDigits: 2,
     notation: compact ? "compact" : "standard"
   }).format(value);
+  const label = currencyLabel?.trim();
+  if (!label) return formatted;
+  if (label.length === 1) return `${label}${formatted}`;
+  if (label.endsWith(" ")) return `${label}${formatted}`;
+  return `${label} ${formatted}`;
 };

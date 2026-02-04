@@ -22,6 +22,15 @@ export const resolveDbPath = () => {
   return path.join(home, ".codex-usage-tracker", "usage.sqlite");
 };
 
+export const resolveConfigPath = (dbOverride?: string | null) => {
+  const override = process.env.CODEX_USAGE_CONFIG?.trim();
+  if (override) {
+    return override;
+  }
+  const dbPath = dbOverride?.trim() ? dbOverride.trim() : resolveDbPath();
+  return path.join(path.dirname(dbPath), "config.json");
+};
+
 export const resolveRolloutsPath = () => {
   if (process.env.CODEX_USAGE_ROLLOUTS) {
     return process.env.CODEX_USAGE_ROLLOUTS;

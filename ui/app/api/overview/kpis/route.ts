@@ -4,7 +4,8 @@ import { getDb } from "@/lib/server/db";
 import { parseFilters } from "@/lib/server/filters";
 import { applyEventType, buildToolJoin, buildWhere } from "@/lib/server/query";
 import { errorResponse, jsonResponse } from "@/lib/server/response";
-import { DEFAULT_PRICING, estimateCost } from "@/lib/pricing";
+import { estimateCost } from "@/lib/pricing";
+import { loadPricingSettings } from "@/lib/server/pricing";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -75,10 +76,11 @@ export const GET = (request: NextRequest) => {
       total_tokens: number | null;
     }>;
 
+    const { pricing } = loadPricingSettings(request.nextUrl.searchParams);
     let estimatedCost = 0;
     let pricedTokens = 0;
     costRows.forEach((row) => {
-      const cost = estimateCost(row, DEFAULT_PRICING);
+      const cost = estimateCost(row, pricing);
       if (cost === null) return;
       estimatedCost += cost;
       pricedTokens += row.total_tokens ?? 0;
