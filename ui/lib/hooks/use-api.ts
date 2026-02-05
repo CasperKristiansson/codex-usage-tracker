@@ -29,6 +29,12 @@ const MAX_CACHE_ENTRIES = 200;
 const MAX_CACHE_AGE = 10 * 60 * 1000;
 const cache = new Map<string, CacheEntry<unknown>>();
 
+const isAbortError = (error: unknown) => {
+  if (!error || typeof error !== "object") return false;
+  const named = error as { name?: unknown };
+  return named.name === "AbortError";
+};
+
 const pruneCache = () => {
   if (cache.size === 0) return;
   const now = Date.now();
@@ -46,13 +52,12 @@ const pruneCache = () => {
   candidates.slice(0, overflow).forEach(([key]) => cache.delete(key));
 };
 
-const fetchJson = async <T,>(key: string, signal: AbortSignal): Promise<T> => {
+const fetchJson = async <T,>(key: string): Promise<T> => {
   const response = await fetch(key, {
     method: "GET",
     headers: {
       "Content-Type": "application/json"
     },
-    signal
   });
 
   if (!response.ok) {
@@ -88,13 +93,16 @@ export const useApi = <T,>(key: string | null, options?: UseApiOptions) => {
 
   const load = useCallback(
     (force = false) => {
+      let active = true;
       if (!resolvedKey || disabled) {
         setState((prev) => ({
           ...prev,
           isLoading: false,
           isStale: false
         }));
-        return () => undefined;
+        return () => {
+          active = false;
+        };
       }
 
       const now = Date.now();
@@ -109,7 +117,9 @@ export const useApi = <T,>(key: string | null, options?: UseApiOptions) => {
           isLoading: false,
           isStale: false
         });
-        return () => undefined;
+        return () => {
+          active = false;
+        };
       }
 
       if (!force && cached?.promise) {
@@ -123,6 +133,7 @@ export const useApi = <T,>(key: string | null, options?: UseApiOptions) => {
           .then((data) => {
             cache.set(resolvedKey, { data, timestamp: Date.now() });
             pruneCache();
+            if (!active) return;
             setState({
               data,
               error: undefined,
@@ -131,12 +142,30 @@ export const useApi = <T,>(key: string | null, options?: UseApiOptions) => {
             });
           })
           .catch((error: Error) => {
+            if (isAbortError(error)) {
+              // Treat aborts (navigation, browser cancellations) as a non-event.
+              cache.set(resolvedKey, {
+                data: cached?.data,
+                error: cached?.error,
+                timestamp: cached?.timestamp ?? 0
+              });
+              pruneCache();
+              if (!active) return;
+              setState({
+                data: cached?.data,
+                error: cached?.error,
+                isLoading: false,
+                isStale: false
+              });
+              return;
+            }
             cache.set(resolvedKey, {
               data: cached?.data,
               error,
               timestamp: Date.now()
             });
             pruneCache();
+            if (!active) return;
             setState({
               data: cached?.data,
               error,
@@ -144,11 +173,12 @@ export const useApi = <T,>(key: string | null, options?: UseApiOptions) => {
               isStale: false
             });
           });
-        return () => undefined;
+        return () => {
+          active = false;
+        };
       }
 
-      const controller = new AbortController();
-      const promise = fetchJson<T>(resolvedKey, controller.signal);
+      const promise = fetchJson<T>(resolvedKey);
       cache.set(resolvedKey, {
         data: cached?.data,
         error: undefined,
@@ -168,16 +198,33 @@ export const useApi = <T,>(key: string | null, options?: UseApiOptions) => {
         .then((data) => {
           cache.set(resolvedKey, { data, timestamp: Date.now() });
           pruneCache();
+          if (!active) return;
           setState({ data, error: undefined, isLoading: false, isStale: false });
         })
         .catch((error: Error) => {
-          if (controller.signal.aborted) return;
+          if (isAbortError(error)) {
+            cache.set(resolvedKey, {
+              data: cached?.data,
+              error: cached?.error,
+              timestamp: cached?.timestamp ?? 0
+            });
+            pruneCache();
+            if (!active) return;
+            setState({
+              data: cached?.data,
+              error: cached?.error,
+              isLoading: false,
+              isStale: false
+            });
+            return;
+          }
           cache.set(resolvedKey, {
             data: cached?.data,
             error,
             timestamp: Date.now()
           });
           pruneCache();
+          if (!active) return;
           setState({
             data: cached?.data,
             error,
@@ -186,7 +233,9 @@ export const useApi = <T,>(key: string | null, options?: UseApiOptions) => {
           });
         });
 
-      return () => controller.abort();
+      return () => {
+        active = false;
+      };
     },
     [resolvedKey, ttl, disabled]
   );

@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { useCallback, useEffect, useLayoutEffect, useState } from "react";
 
 import { navItems, settingsItem } from "@/lib/nav";
 import { asRoute, cn } from "@/lib/utils";
@@ -10,32 +11,102 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
 type SidebarNavProps = {
-  collapsed: boolean;
-  onToggle: () => void;
+  initialCollapsed?: boolean;
 };
 
-const SidebarNav = ({ collapsed, onToggle }: SidebarNavProps) => {
+const STORAGE_KEY = "cut.sidebar.collapsed";
+const COOKIE_KEY = "cut.sidebar.collapsed";
+const COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 365;
+const COLLAPSED_WIDTH = "72px";
+const EXPANDED_WIDTH = "260px";
+
+const SidebarNav = ({ initialCollapsed = false }: SidebarNavProps) => {
   const pathname = usePathname();
+  const [collapsed, setCollapsed] = useState(initialCollapsed);
 
   const SettingsIcon = settingsItem.icon;
+
+  const applySidebarWidth = useCallback((nextCollapsed: boolean) => {
+    const width = nextCollapsed ? COLLAPSED_WIDTH : EXPANDED_WIDTH;
+    document.body.style.setProperty("--sidebar-width", width);
+  }, []);
+
+  const persistCollapsed = useCallback((next: boolean) => {
+    try {
+      window.localStorage.setItem(STORAGE_KEY, String(next));
+    } catch {
+      // Ignore storage failures (private mode, disabled storage).
+    }
+    document.cookie = `${COOKIE_KEY}=${String(next)}; Path=/; Max-Age=${COOKIE_MAX_AGE_SECONDS}; SameSite=Lax`;
+    applySidebarWidth(next);
+  }, [applySidebarWidth]);
+
+  const handleToggle = useCallback(() => {
+    setCollapsed((prev) => {
+      const next = !prev;
+      persistCollapsed(next);
+      return next;
+    });
+  }, [persistCollapsed]);
+
+  useLayoutEffect(() => {
+    applySidebarWidth(collapsed);
+  }, [applySidebarWidth, collapsed]);
+
+  useEffect(() => {
+    // If localStorage differs from SSR cookie, prefer localStorage after hydration.
+    try {
+      const stored = window.localStorage.getItem(STORAGE_KEY);
+      if (stored === null) return;
+      const next = stored === "true";
+      if (next !== collapsed) setCollapsed(next);
+    } catch {
+      // Ignore
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <aside
       className={cn(
-        "fixed inset-y-0 left-0 z-40 flex h-screen flex-col overflow-y-auto border-r border-border/20 bg-card/70 px-3 py-5 backdrop-blur transition-[width] duration-200",
-        collapsed ? "w-[72px]" : "w-[260px]"
+        "fixed inset-y-0 left-0 z-40 flex h-screen flex-col overflow-y-auto border-r border-border/20 bg-card/70 px-3 py-5 backdrop-blur transition-[width] duration-200"
       )}
+      style={{ width: "var(--sidebar-width)" }}
     >
-      <div className={cn("flex items-center gap-3", collapsed ? "justify-center" : "px-1")}> 
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/15 text-primary">
-          <span className="text-sm font-semibold">CU</span>
-        </div>
-        {!collapsed ? (
-          <div className="flex flex-col">
-            <span className="text-sm font-semibold">Codex Usage</span>
-            <Badge className="mt-1 w-fit">Local</Badge>
-          </div>
-        ) : null}
+      <div className={cn("flex items-center gap-3 px-1", collapsed ? "justify-center" : "")}>
+        {collapsed ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={handleToggle}
+            aria-label="Expand sidebar"
+            title="Expand sidebar"
+          >
+            <PanelLeftOpen className="h-4 w-4" />
+          </Button>
+        ) : (
+          <>
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/15 text-primary">
+              <span className="text-sm font-semibold">CU</span>
+            </div>
+            <div className="flex flex-col">
+              <span className="text-sm font-semibold">Codex Usage</span>
+              <Badge className="mt-1 w-fit">Local</Badge>
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={handleToggle}
+              className="ml-auto"
+              aria-label="Collapse sidebar"
+              title="Collapse sidebar"
+            >
+              <PanelLeftClose className="h-4 w-4" />
+            </Button>
+          </>
+        )}
       </div>
 
       <nav
@@ -66,7 +137,7 @@ const SidebarNav = ({ collapsed, onToggle }: SidebarNavProps) => {
         })}
       </nav>
 
-      <div className={cn("mt-auto flex flex-col gap-2", collapsed ? "items-center" : "")}> 
+      <div className={cn("mt-auto flex flex-col gap-2", collapsed ? "items-center" : "")}>
         <Link
           href={asRoute(settingsItem.href)}
           data-testid="nav-settings"
@@ -80,15 +151,6 @@ const SidebarNav = ({ collapsed, onToggle }: SidebarNavProps) => {
           <SettingsIcon className="h-4 w-4" />
           {!collapsed ? <span>{settingsItem.label}</span> : null}
         </Link>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={onToggle}
-          className="self-center"
-          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-        >
-          {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
-        </Button>
       </div>
     </aside>
   );

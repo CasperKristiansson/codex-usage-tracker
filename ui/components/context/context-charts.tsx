@@ -79,7 +79,7 @@ export const ContextHistogramChart = ({ data }: { data: ContextHistogram }) => {
 
   return (
     <div className="h-56 w-full">
-      <ResponsiveContainer>
+      <ResponsiveContainer debounce={150}>
         <BarChart data={chartData} margin={{ left: 8, right: 16, top: 8 }}>
           <CartesianGrid stroke="hsl(var(--border) / 0.2)" vertical={false} />
           <XAxis
@@ -144,7 +144,7 @@ export const DangerRateChart = ({ data }: { data: DangerRateTimeseries }) => {
 
   return (
     <div className="h-56 w-full">
-      <ResponsiveContainer>
+      <ResponsiveContainer debounce={150}>
         <LineChart data={chartData} margin={{ left: 8, right: 16, top: 8 }}>
           <CartesianGrid stroke="hsl(var(--border) / 0.2)" vertical={false} />
           <XAxis
@@ -249,7 +249,7 @@ export const CompactionEventsChart = ({
     <div className="space-y-4">
       <LegendInline items={legendItems} />
       <div className="h-60 w-full">
-        <ResponsiveContainer>
+        <ResponsiveContainer debounce={150}>
           <AreaChart data={chartData} margin={{ left: 8, right: 16, top: 8 }}>
             <CartesianGrid stroke="hsl(var(--border) / 0.2)" vertical={false} />
             <XAxis

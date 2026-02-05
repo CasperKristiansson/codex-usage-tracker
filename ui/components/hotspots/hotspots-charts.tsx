@@ -44,6 +44,13 @@ export const ModelDirMatrix = ({
   data: ModelDirMatrixData;
   onSelect?: (model: string, directory: string, shiftKey: boolean) => void;
 }) => {
+  const dirLabel = (dir: string) => {
+    if (!dir || dir === "Other") return dir;
+    const trimmed = dir.replace(/[\\/]+$/, "");
+    const parts = trimmed.split(/[\\/]/).filter(Boolean);
+    return parts.length ? parts[parts.length - 1] : dir;
+  };
+
   const maxValue = useMemo(() => {
     let max = 0;
     data.matrix.forEach((row) => {
@@ -93,7 +100,7 @@ export const ModelDirMatrix = ({
               className="px-2 text-xs font-semibold text-muted-foreground"
               title={dir}
             >
-              <div className="truncate">{dir}</div>
+              <div className="truncate">{dirLabel(dir)}</div>
             </div>
           ))}
           {data.models.map((model, rowIndex) => (
@@ -187,7 +194,7 @@ export const TokensDistributionChart = ({
     <div className="space-y-3">
       <LegendInline items={legendItems} />
       <div className="h-56 w-full">
-        <ResponsiveContainer>
+        <ResponsiveContainer debounce={150}>
           <ComposedChart data={chartData} margin={{ left: 8, right: 16, top: 8 }}>
             <CartesianGrid stroke="hsl(var(--border) / 0.2)" vertical={false} />
             <XAxis
@@ -241,4 +248,3 @@ export const TokensDistributionChart = ({
     </div>
   );
 };
-

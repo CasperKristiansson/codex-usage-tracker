@@ -194,7 +194,7 @@ export const VolumeChart = ({
 
   return (
     <div className="h-60 w-full">
-      <ResponsiveContainer>
+      <ResponsiveContainer debounce={150}>
         <AreaChart data={chartData} margin={{ left: 8, right: 16, top: 8 }}>
           <defs>
             <linearGradient id="volumeFill" x1="0" y1="0" x2="0" y2="1">
@@ -265,7 +265,7 @@ export const CostChart = ({
 
   return (
     <div className="h-60 w-full">
-      <ResponsiveContainer>
+      <ResponsiveContainer debounce={150}>
         <AreaChart data={chartData} margin={{ left: 8, right: 16, top: 8 }}>
           <defs>
             <linearGradient id="costFill" x1="0" y1="0" x2="0" y2="1">
@@ -405,7 +405,7 @@ export const TokenMixChart = ({
         ].filter((item) => !item.hidden)}
       />
       <div className="h-60 w-full">
-        <ResponsiveContainer>
+        <ResponsiveContainer debounce={150}>
           <AreaChart data={chartData} margin={{ left: 8, right: 16, top: 8 }}>
             <CartesianGrid stroke="hsl(var(--border) / 0.2)" vertical={false} />
             <XAxis
@@ -594,7 +594,7 @@ export const CacheEffectivenessChart = ({
         ].filter(Boolean) as Array<{ label: string; color: string }>}
       />
       <div className="h-60 w-full">
-        <ResponsiveContainer>
+        <ResponsiveContainer debounce={150}>
           <LineChart data={chartData} margin={{ left: 8, right: 16, top: 8 }}>
             <defs>
               <linearGradient id="savingsFill" x1="0" y1="0" x2="0" y2="1">
@@ -730,7 +730,7 @@ export const ModelShareChart = ({
     <div className="space-y-3">
       <LegendInline items={legendItems} />
       <div className="h-60 w-full">
-        <ResponsiveContainer>
+        <ResponsiveContainer debounce={150}>
           <BarChart data={rows} margin={{ left: 8, right: 16, top: 8 }}>
             <CartesianGrid stroke="hsl(var(--border) / 0.2)" vertical={false} />
             <XAxis
@@ -895,7 +895,7 @@ export const ContextPressureChart = ({
         </div>
         {sparklineData.length ? (
           <div className="h-16 w-[180px]">
-            <ResponsiveContainer>
+            <ResponsiveContainer debounce={150}>
               <LineChart data={sparklineData} margin={{ left: 4, right: 4 }}>
                 <XAxis dataKey="bucket" hide />
                 <YAxis domain={[0, 100]} hide />
@@ -929,7 +929,7 @@ export const ContextPressureChart = ({
         ) : null}
       </div>
       <div className="h-48 w-full">
-        <ResponsiveContainer>
+        <ResponsiveContainer debounce={150}>
           <BarChart data={chartData} margin={{ left: 8, right: 16, top: 8 }}>
             <CartesianGrid stroke="hsl(var(--border) / 0.2)" vertical={false} />
             <XAxis
@@ -1012,7 +1012,7 @@ export const RateLimitChart = ({
 
   return (
     <div className="h-60 w-full">
-      <ResponsiveContainer>
+      <ResponsiveContainer debounce={150}>
         <LineChart data={chartData} margin={{ left: 8, right: 16, top: 8 }}>
           <CartesianGrid stroke="hsl(var(--border) / 0.2)" vertical={false} />
           <XAxis
@@ -1144,7 +1144,7 @@ export const FrictionEventsChart = ({
     <div className="space-y-3">
       <LegendInline items={legendItems.slice(0, 6)} />
       <div className="h-60 w-full">
-        <ResponsiveContainer>
+        <ResponsiveContainer debounce={150}>
           <BarChart data={chartData} margin={{ left: 8, right: 16, top: 8 }}>
             <CartesianGrid stroke="hsl(var(--border) / 0.2)" vertical={false} />
             <XAxis
@@ -1209,7 +1209,7 @@ export const ToolsCompositionChart = ({
 
   return (
     <div className="h-56 w-full">
-      <ResponsiveContainer>
+      <ResponsiveContainer debounce={150}>
         <BarChart data={chartData} margin={{ left: 8, right: 16, top: 8 }}>
           <CartesianGrid stroke="hsl(var(--border) / 0.2)" vertical={false} />
           <XAxis

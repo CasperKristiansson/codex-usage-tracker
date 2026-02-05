@@ -127,7 +127,7 @@ export const ToolTrendChart = ({
     <div className="space-y-3">
       <LegendInline items={legendItems} />
       <div className="h-60 w-full">
-        <ResponsiveContainer>
+        <ResponsiveContainer debounce={150}>
           <AreaChart data={rows} margin={{ left: 8, right: 16, top: 8 }}>
             <CartesianGrid stroke="hsl(var(--border) / 0.2)" vertical={false} />
             <XAxis

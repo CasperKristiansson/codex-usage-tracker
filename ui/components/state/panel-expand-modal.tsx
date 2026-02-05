@@ -16,6 +16,7 @@ export type PanelExpandModalProps = {
   subtitle?: string;
   children: ReactNode;
   onClose: () => void;
+  variant?: "panel" | "dialog";
   exportData?: unknown;
   exportFileBase?: string;
   queryParams?: string;
@@ -28,6 +29,7 @@ const PanelExpandModal = ({
   subtitle,
   children,
   onClose,
+  variant = "panel",
   exportData,
   exportFileBase,
   queryParams,
@@ -67,12 +69,21 @@ const PanelExpandModal = ({
   if (!open) return null;
   if (typeof document === "undefined") return null;
 
+  const isDialog = variant === "dialog";
+
   return createPortal(
-    <div className="panel-expand-modal fixed inset-0 z-50">
+    <div
+      className={cn(
+        "panel-expand-modal fixed inset-0 z-50",
+        isDialog ? "flex items-center justify-center p-6" : ""
+      )}
+    >
       <div className="absolute inset-0 bg-black/55 backdrop-blur-sm" onClick={onClose} />
       <div
         className={cn(
-          "relative z-10 mx-auto my-6 flex h-[calc(100%-3rem)] w-[min(1100px,92vw)] flex-col rounded-2xl border border-border/30 bg-card shadow-2xl",
+          isDialog
+            ? "relative z-10 flex w-[min(680px,92vw)] flex-col rounded-2xl border border-border/30 bg-card shadow-2xl"
+            : "relative z-10 mx-auto my-6 flex h-[calc(100%-3rem)] w-[min(1100px,92vw)] flex-col rounded-2xl border border-border/30 bg-card shadow-2xl",
           className
         )}
         role="dialog"
@@ -107,11 +118,20 @@ const PanelExpandModal = ({
             </Button>
           </div>
         </div>
-        <div className="flex-1 overflow-auto px-5 py-4">
+        <div
+          className={cn(
+            "px-5 py-4",
+            isDialog ? "max-h-[calc(100vh-10rem)] overflow-auto" : "flex-1 overflow-auto"
+          )}
+        >
           <div className="flex flex-col gap-4">
-            <div className="panel-expand-chart min-h-[360px] h-[52vh] max-h-[640px]">
-              {children}
-            </div>
+            {isDialog ? (
+              <div>{children}</div>
+            ) : (
+              <div className="panel-expand-chart min-h-[360px] h-[52vh] max-h-[640px]">
+                {children}
+              </div>
+            )}
             {exportData ? (
               <div className="rounded-xl border border-border/20 bg-muted/20 px-4 py-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">

@@ -67,6 +67,7 @@ const TopHeader = () => {
         onClose={() => setHelpOpen(false)}
         title="Keyboard Shortcuts"
         subtitle="Navigate faster with the keyboard"
+        variant="dialog"
       >
         <div className="space-y-4 text-sm text-foreground">
           <div className="grid gap-2 sm:grid-cols-2">
