@@ -348,6 +348,7 @@ export default function SessionsPage() {
         queryParams={filterQuery}
         drilldown={false}
         expandable
+        testId="sessions-panel"
       >
         <div className="space-y-4">
           <div className="flex flex-wrap items-end gap-3 rounded-xl border border-border/20 bg-card/60 px-4 py-3 shadow-sm">

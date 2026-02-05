@@ -15,6 +15,7 @@ type SideDrawerProps = {
   actions?: ReactNode;
   onClose: () => void;
   className?: string;
+  testId?: string;
 };
 
 const SideDrawer = ({
@@ -24,7 +25,8 @@ const SideDrawer = ({
   actions,
   children,
   onClose,
-  className
+  className,
+  testId
 }: SideDrawerProps) => {
   useEffect(() => {
     if (!open) return;
@@ -38,7 +40,7 @@ const SideDrawer = ({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50">
+    <div className="fixed inset-0 z-50" data-testid={testId}>
       <div
         className="absolute inset-0 bg-black/50 backdrop-blur-sm"
         onClick={onClose}

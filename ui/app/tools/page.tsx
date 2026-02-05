@@ -176,6 +176,7 @@ export default function ToolsPage() {
           exportFileBase="tools-composition"
           queryParams={filterQuery}
           expandable
+          testId="tools-composition"
           actions={activeType ? <Badge className="normal-case">{activeType}</Badge> : null}
         >
           {renderPanelState(
@@ -216,6 +217,7 @@ export default function ToolsPage() {
           exportFileBase="tools-names"
           queryParams={filterQuery}
           expandable
+          testId="tools-names"
         >
           {activeType
             ? renderPanelState(
@@ -246,6 +248,7 @@ export default function ToolsPage() {
           exportFileBase="tools-trends"
           queryParams={filterQuery}
           expandable
+          testId="tools-trends"
           expandedContent={
             <div className="space-y-4">
               {trendToggleItems.length ? (
@@ -278,6 +281,7 @@ export default function ToolsPage() {
           exportFileBase="tools-latency"
           queryParams={filterQuery}
           expandable
+          testId="tools-latency"
         >
           {renderPanelState(
             latency,
@@ -300,6 +304,7 @@ export default function ToolsPage() {
         exportFileBase="tools-failures"
         queryParams={filterQuery}
         expandable
+        testId="tools-failures"
       >
         {renderPanelState(
           errorRates,
@@ -358,6 +363,7 @@ export default function ToolsPage() {
         onClose={() => setDrawerTool(null)}
         title={drawerTool ? `${drawerTool} samples` : "Samples"}
         subtitle="Limited to 24h range and 200 rows"
+        testId="tool-samples-drawer"
         actions={
           drawerTool && isSampleAllowed ? (
             <Button size="sm" variant="outline" onClick={() => samples.refetch()}>

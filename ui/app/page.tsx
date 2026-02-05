@@ -129,6 +129,7 @@ type EndpointState<T> = {
 };
 
 type KpiItem = {
+  key: keyof OverviewKpis;
   label: string;
   value: string;
   delta?: string;
@@ -478,6 +479,7 @@ export default function OverviewPage() {
         : undefined;
       const tone = delta !== null && config.tone ? config.tone(delta) : undefined;
       return {
+        key: config.key,
         label: config.label,
         value: config.format(currentValue),
         delta: deltaText,
@@ -543,6 +545,7 @@ export default function OverviewPage() {
               delta={item.delta}
               tone={item.tone}
               isLoading={kpis.isLoading}
+              testId={`overview-kpi-${item.key}`}
             />
           ))}
         </section>
@@ -557,6 +560,7 @@ export default function OverviewPage() {
         exportFileBase="overview-usage-volume"
         queryParams={filterQuery}
         expandable
+        testId="overview-usage-volume"
         actions={
           <SegmentedControl
             options={volumeOptions}
@@ -577,6 +581,7 @@ export default function OverviewPage() {
         exportFileBase="overview-token-mix"
         queryParams={filterQuery}
         expandable
+        testId="overview-token-mix"
         expandedContent={
           <div className="space-y-4">
             <SeriesToggles
@@ -617,6 +622,7 @@ export default function OverviewPage() {
         exportFileBase="overview-cache-effectiveness"
         queryParams={filterQuery}
         expandable
+        testId="overview-cache-effectiveness"
         footer={
           showCost ? undefined : "Enable cost estimates in Settings to see savings."
         }
@@ -643,6 +649,7 @@ export default function OverviewPage() {
             exportFileBase="overview-cost-timeseries"
             queryParams={filterQuery}
             expandable
+            testId="overview-estimated-cost"
           >
             {renderPanelState(
               costTimeseries,
@@ -655,6 +662,7 @@ export default function OverviewPage() {
             subtitle="Latest observed quota usage"
             queryParams={filterQuery}
             expandable
+            testId="overview-weekly-quota"
           >
             {weeklyQuota.isLoading ? (
               <Skeleton className="h-40 w-full" />
@@ -747,6 +755,7 @@ export default function OverviewPage() {
           exportFileBase="overview-model-share"
           queryParams={filterQuery}
           expandable
+          testId="overview-model-share"
           expandedContent={
             <div className="space-y-4">
               {modelShareToggleItems.length ? (
@@ -792,6 +801,7 @@ export default function OverviewPage() {
           exportFileBase="overview-directory-hotspots"
           queryParams={directoryQueryParams}
           expandable
+          testId="overview-directory-hotspots"
           actions={
             <SegmentedControl
               options={directoryDepthOptions.map((option) => ({
@@ -830,6 +840,7 @@ export default function OverviewPage() {
           exportFileBase="overview-repo-hotspots"
           queryParams={filterQuery}
           expandable
+          testId="overview-repo-hotspots"
         >
           {renderPanelState(
             repoTop,
@@ -853,6 +864,7 @@ export default function OverviewPage() {
           exportFileBase="overview-branch-hotspots"
           queryParams={filterQuery}
           expandable
+          testId="overview-branch-hotspots"
         >
           {renderPanelState(
             branchTop,
@@ -879,6 +891,7 @@ export default function OverviewPage() {
           exportFileBase="overview-context-pressure"
           queryParams={filterQuery}
           expandable
+          testId="overview-context-pressure"
         >
           {renderPanelState(
             contextPressure,
@@ -899,6 +912,7 @@ export default function OverviewPage() {
           exportFileBase="overview-rate-limit"
           queryParams={filterQuery}
           expandable
+          testId="overview-rate-limit"
           expandedContent={
             <div className="space-y-4">
               <SeriesToggles
@@ -937,6 +951,7 @@ export default function OverviewPage() {
           exportFileBase="overview-tools-composition"
           queryParams={filterQuery}
           expandable
+          testId="overview-tool-composition"
         >
           {renderPanelState(
             toolsComposition,
@@ -952,6 +967,7 @@ export default function OverviewPage() {
           exportFileBase="overview-friction-events"
           queryParams={filterQuery}
           expandable
+          testId="overview-workflow-friction"
           expandedContent={
             <div className="space-y-4">
               <SeriesToggles

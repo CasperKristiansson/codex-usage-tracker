@@ -7,6 +7,7 @@ type KpiCardProps = {
   delta?: string;
   tone?: "good" | "warn" | "bad";
   isLoading?: boolean;
+  testId?: string;
 };
 
 const toneMap = {
@@ -20,10 +21,11 @@ const KpiCard = ({
   value = "—",
   delta,
   tone,
-  isLoading = false
+  isLoading = false,
+  testId
 }: KpiCardProps) => {
   return (
-    <div className="card-panel px-4 py-4">
+    <div className="card-panel px-4 py-4" data-testid={testId}>
       <div className="text-xs text-muted-foreground">{label}</div>
       {isLoading ? (
         <Skeleton className="mt-2 h-7 w-24" />

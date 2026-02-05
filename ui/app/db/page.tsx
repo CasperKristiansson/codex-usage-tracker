@@ -182,7 +182,7 @@ export default function DbInsightsPage() {
       </div>
 
       <section className="grid gap-4 lg:grid-cols-3">
-        <CardPanel title="Database" subtitle="File path and size">
+        <CardPanel title="Database" subtitle="File path and size" testId="db-database">
           {renderPanelState(
             insights,
             "No database metadata yet.",
@@ -223,7 +223,7 @@ export default function DbInsightsPage() {
           )}
         </CardPanel>
 
-        <CardPanel title="Record Counts" subtitle="Key tables">
+        <CardPanel title="Record Counts" subtitle="Key tables" testId="db-record-counts">
           {renderPanelState(
             insights,
             "No record counts available.",
@@ -251,7 +251,7 @@ export default function DbInsightsPage() {
           )}
         </CardPanel>
 
-        <CardPanel title="Ingestion" subtitle="Coverage and metadata">
+        <CardPanel title="Ingestion" subtitle="Coverage and metadata" testId="db-ingestion">
           {renderPanelState(
             insights,
             "No ingestion metadata yet.",
@@ -346,7 +346,7 @@ export default function DbInsightsPage() {
         </CardPanel>
       </section>
 
-      <CardPanel title="Table Sizes" subtitle="Approximate storage per table">
+      <CardPanel title="Table Sizes" subtitle="Approximate storage per table" testId="db-table-sizes">
         {renderPanelState(
           insights,
           "No table data available.",
@@ -397,7 +397,11 @@ export default function DbInsightsPage() {
         )}
       </CardPanel>
 
-      <CardPanel title="Data Export" subtitle="Download raw tables with filters applied">
+      <CardPanel
+        title="Data Export"
+        subtitle="Download raw tables with filters applied"
+        testId="db-data-export"
+      >
         <div className="space-y-3 text-xs">
           <div className="flex flex-wrap items-end gap-3">
             <div className="flex flex-col gap-1">

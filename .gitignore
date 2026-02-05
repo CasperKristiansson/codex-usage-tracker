@@ -8,3 +8,5 @@ ui/.sync
 .pnpm-store
 *.tsbuildinfo
 dist
+ui/tests/fixtures/usage.sqlite
+ui/tests/fixtures/config.json

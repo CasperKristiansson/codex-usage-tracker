@@ -218,7 +218,7 @@ export default function SettingsPage() {
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">
-      <CardPanel title="Data source" subtitle="SQLite connection">
+      <CardPanel title="Data source" subtitle="SQLite connection" testId="settings-data-source">
         {dbInfo.isLoading ? (
           <Skeleton className="h-32 w-full" />
         ) : dbInfo.error ? (
@@ -295,7 +295,7 @@ export default function SettingsPage() {
         )}
       </CardPanel>
 
-      <CardPanel title="Timezone" subtitle="Reporting and charts">
+      <CardPanel title="Timezone" subtitle="Reporting and charts" testId="settings-timezone">
         {timezoneSettings.isLoading ? (
           <Skeleton className="h-24 w-full" />
         ) : timezoneSettings.error ? (
@@ -345,7 +345,7 @@ export default function SettingsPage() {
         )}
       </CardPanel>
 
-      <CardPanel title="Cost model" subtitle="Pricing per model">
+      <CardPanel title="Cost model" subtitle="Pricing per model" testId="settings-cost-model">
         <div className="space-y-4">
           <label className="flex items-center gap-2 text-xs text-muted-foreground">
             <input
@@ -451,7 +451,12 @@ export default function SettingsPage() {
         </div>
       </CardPanel>
 
-      <CardPanel title="Appearance" subtitle="Theme + density" className="lg:col-span-2">
+      <CardPanel
+        title="Appearance"
+        subtitle="Theme + density"
+        className="lg:col-span-2"
+        testId="settings-appearance"
+      >
         <div className="flex flex-wrap items-center gap-4">
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
             <span>Theme</span>

@@ -260,6 +260,7 @@ export const SessionDetailDrawer = ({
       onClose={onClose}
       title={sessionId ? `Session ${sessionId}` : "Session"}
       subtitle="Overview and debug samples"
+      testId="session-detail-drawer"
       actions={
         <div className="flex items-center gap-2">
           <Button

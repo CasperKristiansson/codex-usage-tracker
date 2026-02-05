@@ -24,6 +24,7 @@ type CardPanelProps = {
   expandedClassName?: string;
   queryParams?: string;
   drilldown?: boolean;
+  testId?: string;
 };
 
 const CardPanel = ({
@@ -39,7 +40,8 @@ const CardPanel = ({
   expandedContent,
   expandedClassName,
   queryParams,
-  drilldown = true
+  drilldown = true,
+  testId
 }: CardPanelProps) => {
   const [expanded, setExpanded] = useState(false);
 
@@ -48,7 +50,10 @@ const CardPanel = ({
   const showDrilldown = drilldown && queryParams !== undefined;
 
   return (
-    <section className={cn("card-panel flex flex-col", className)}>
+    <section
+      className={cn("card-panel flex flex-col", className)}
+      data-testid={testId}
+    >
       <div className="card-header">
         <div>
           <div className="card-title">{title}</div>

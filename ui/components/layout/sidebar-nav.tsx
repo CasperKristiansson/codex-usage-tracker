@@ -38,7 +38,10 @@ const SidebarNav = ({ collapsed, onToggle }: SidebarNavProps) => {
         ) : null}
       </div>
 
-      <nav className={cn("mt-8 flex flex-1 flex-col gap-1", collapsed ? "items-center" : "")}> 
+      <nav
+        className={cn("mt-8 flex flex-1 flex-col gap-1", collapsed ? "items-center" : "")}
+        data-testid="sidebar-nav"
+      >
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = pathname === item.href;
@@ -46,6 +49,7 @@ const SidebarNav = ({ collapsed, onToggle }: SidebarNavProps) => {
             <Link
               key={item.href}
               href={asRoute(item.href)}
+              data-testid={`nav-${item.label.toLowerCase().replace(/\s+/g, "-")}`}
               className={cn(
                 "group flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
                 isActive
@@ -65,6 +69,7 @@ const SidebarNav = ({ collapsed, onToggle }: SidebarNavProps) => {
       <div className={cn("mt-auto flex flex-col gap-2", collapsed ? "items-center" : "")}> 
         <Link
           href={asRoute(settingsItem.href)}
+          data-testid="nav-settings"
           className={cn(
             "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground",
             pathname === settingsItem.href ? "bg-primary/15 text-primary" : "",

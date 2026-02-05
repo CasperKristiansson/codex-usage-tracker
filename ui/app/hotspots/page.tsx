@@ -152,6 +152,7 @@ export default function HotspotsPage() {
         exportFileBase="hotspots-model-dir"
         queryParams={filterQuery}
         expandable
+        testId="hotspots-model-dir"
       >
         {renderPanelState(
           matrix,
@@ -171,6 +172,7 @@ export default function HotspotsPage() {
           exportFileBase="hotspots-token-distribution"
           queryParams={filterQuery}
           expandable
+          testId="hotspots-token-distribution"
           actions={
             matrixModels.length ? (
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -217,6 +219,7 @@ export default function HotspotsPage() {
           exportFileBase="hotspots-top-sessions"
           queryParams={filterQuery}
           expandable
+          testId="hotspots-top-sessions"
         >
           {renderPanelState(
             topSessions,

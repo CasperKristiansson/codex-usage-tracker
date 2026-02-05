@@ -111,6 +111,7 @@ export default function ContextPage() {
           exportFileBase="context-histogram"
           queryParams={filterQuery}
           expandable
+          testId="context-histogram"
         >
           {renderPanelState(
             histogram,
@@ -125,6 +126,7 @@ export default function ContextPage() {
           exportFileBase="context-danger-rate"
           queryParams={filterQuery}
           expandable
+          testId="context-danger-rate"
         >
           {renderPanelState(
             dangerRate,
@@ -141,6 +143,7 @@ export default function ContextPage() {
         exportFileBase="context-compaction"
         queryParams={filterQuery}
         expandable
+        testId="context-compaction"
       >
         {renderPanelState(
           compaction,
@@ -166,6 +169,7 @@ export default function ContextPage() {
         exportFileBase="context-vs-tokens"
         queryParams={filterQuery}
         expandable
+        testId="context-vs-tokens"
       >
         {renderPanelState(
           contextHeatmap,

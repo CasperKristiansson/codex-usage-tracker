@@ -1,0 +1,14 @@
+# Allow running the Playwright e2e test command outside the sandbox.
+prefix_rule(
+    pattern = ["pnpm", "--dir", "ui", "test:e2e"],
+    decision = "allow",
+    justification = "Run Playwright e2e tests for the UI",
+    match = [
+        "pnpm --dir ui test:e2e",
+    ],
+    not_match = [
+        "pnpm --dir ui test",
+        "pnpm --dir ui test:e2e -- --headed",
+        "pnpm --dir ui test:e2e && echo ok",
+    ],
+)
