@@ -8,6 +8,7 @@ import { KeyboardShortcuts } from "@/components/layout/keyboard-shortcuts";
 import SidebarNav from "@/components/layout/sidebar-nav";
 import TopHeader from "@/components/layout/top-header";
 import { SettingsSync } from "@/components/state/settings-sync";
+import { ViewExportProvider } from "@/components/state/view-export-context";
 
 const STORAGE_KEY = "cut.sidebar.collapsed";
 
@@ -39,12 +40,14 @@ const AppShell = ({ children }: AppShellProps) => {
         className="flex min-h-screen flex-col transition-[padding] duration-200"
         style={{ paddingLeft: sidebarWidth }}
       >
-        <TopHeader />
-        <main className="flex-1">
-          <div className="mx-auto w-full max-w-screen-2xl px-4 pb-12 pt-6 sm:px-6">
-            {children}
-          </div>
-        </main>
+        <ViewExportProvider>
+          <TopHeader />
+          <main className="flex-1">
+            <div className="mx-auto w-full max-w-screen-2xl px-4 pb-12 pt-6 sm:px-6">
+              {children}
+            </div>
+          </main>
+        </ViewExportProvider>
       </div>
     </div>
   );

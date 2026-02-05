@@ -5,7 +5,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { CardPanel } from "@/components/state/card-panel";
 import { EmptyState } from "@/components/state/empty-state";
 import { ErrorState } from "@/components/state/error-state";
-import { ViewExportMenu } from "@/components/state/view-export-menu";
+import { useRegisterViewExport } from "@/components/state/view-export-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -121,6 +121,16 @@ export default function DbInsightsPage() {
     }),
     [insights.data]
   );
+  useRegisterViewExport(
+    useMemo(
+      () => ({
+        title: "DB Insights",
+        filters,
+        datasets: exportDatasets
+      }),
+      [exportDatasets, filters]
+    )
+  );
   const canExport = insights.data?.db.exists !== false;
 
   const buildExportUrl = (format: "json" | "csv") => {
@@ -179,16 +189,12 @@ export default function DbInsightsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-end">
-        <ViewExportMenu title="DB Insights" filters={filters} datasets={exportDatasets} />
-      </div>
-
       <section className="grid gap-4 lg:grid-cols-3">
         <CardPanel title="Database" subtitle="File path and size" testId="db-database">
           {renderPanelState(
             insights,
             "No database metadata yet.",
-            () => (
+            (data) => (
               <div className="space-y-3 text-xs">
                 <div className="rounded-lg border border-border/20 bg-muted/20 px-3 py-2">
                   <div className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">

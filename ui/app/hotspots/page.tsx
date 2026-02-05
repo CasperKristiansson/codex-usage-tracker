@@ -15,7 +15,7 @@ import { CardPanel } from "@/components/state/card-panel";
 import { EmptyState } from "@/components/state/empty-state";
 import { ErrorState } from "@/components/state/error-state";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ViewExportMenu } from "@/components/state/view-export-menu";
+import { useRegisterViewExport } from "@/components/state/view-export-context";
 import { buildFilterQuery } from "@/lib/api";
 import { isEmptyResponse } from "@/lib/data";
 import { setFilterParam } from "@/lib/filters";
@@ -108,6 +108,16 @@ export default function HotspotsPage() {
       topSessions.data
     ]
   );
+  useRegisterViewExport(
+    useMemo(
+      () => ({
+        title: "Hotspots",
+        filters,
+        datasets: exportDatasets
+      }),
+      [exportDatasets, filters]
+    )
+  );
 
   const handleMatrixSelect = (model: string, directory: string, shiftKey: boolean) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -141,9 +151,6 @@ export default function HotspotsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-end">
-        <ViewExportMenu title="Hotspots" filters={filters} datasets={exportDatasets} />
-      </div>
       <CardPanel
         title="Model x Directory"
         subtitle="Top token hotspots (click to filter)"

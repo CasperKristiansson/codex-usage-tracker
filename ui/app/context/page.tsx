@@ -17,7 +17,7 @@ import type { VolumeTimeseries } from "@/components/overview/overview-charts";
 import { CardPanel } from "@/components/state/card-panel";
 import { EmptyState } from "@/components/state/empty-state";
 import { ErrorState } from "@/components/state/error-state";
-import { ViewExportMenu } from "@/components/state/view-export-menu";
+import { useRegisterViewExport } from "@/components/state/view-export-context";
 import { Skeleton } from "@/components/ui/skeleton";
 import { isEmptyResponse } from "@/lib/data";
 import { buildFilterQuery } from "@/lib/api";
@@ -80,6 +80,16 @@ export default function ContextPage() {
       volume.data
     ]
   );
+  useRegisterViewExport(
+    useMemo(
+      () => ({
+        title: "Context and Limits",
+        filters,
+        datasets: exportDatasets
+      }),
+      [exportDatasets, filters]
+    )
+  );
 
   const renderPanelState = <T,>(
     state: {
@@ -100,9 +110,6 @@ export default function ContextPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-end">
-        <ViewExportMenu title="Context and Limits" filters={filters} datasets={exportDatasets} />
-      </div>
       <section className="grid gap-4 lg:grid-cols-2">
         <CardPanel
           title="Context Histogram"

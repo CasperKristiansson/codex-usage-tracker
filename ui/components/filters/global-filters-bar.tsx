@@ -3,10 +3,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { RotateCcw } from "lucide-react";
 
 import {
-  areFiltersDefault,
   buildParamsWithDefaults,
   DEFAULT_TOP_N,
   getDefaultFilters,
@@ -23,7 +21,6 @@ import {
   toZonedIso
 } from "@/lib/timezone";
 import { asRoute } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { TagInput } from "@/components/ui/tag-input";
@@ -157,18 +154,6 @@ const GlobalFiltersBar = () => {
     } as Partial<Record<keyof typeof filters, string>>);
   };
 
-  const handleReset = () => {
-    setCustomSelected(false);
-    const params = new URLSearchParams();
-    params.set("from", defaults.from);
-    params.set("to", defaults.to);
-    params.set("bucket", defaults.bucket);
-    params.set("topN", String(defaults.topN));
-    replaceParams(params);
-  };
-
-  const activeFilters = !areFiltersDefault(filters, defaults);
-
   return (
     <div className="flex flex-wrap items-end gap-3 rounded-xl border border-border/20 bg-card/60 px-4 py-3 shadow-sm">
       <div className="flex flex-col gap-1">
@@ -271,15 +256,6 @@ const GlobalFiltersBar = () => {
           </div>
         </div>
       ) : null}
-
-      <div className="ml-auto flex items-center gap-2">
-        {activeFilters ? (
-          <span className="flex h-2 w-2 rounded-full bg-primary" />
-        ) : null}
-        <Button variant="ghost" size="icon" onClick={handleReset} aria-label="Reset">
-          <RotateCcw className="h-4 w-4" />
-        </Button>
-      </div>
     </div>
   );
 };

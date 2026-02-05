@@ -42,7 +42,7 @@ import { KpiCard } from "@/components/state/kpi-card";
 import IngestHealthPanel, {
   type IngestHealth
 } from "@/components/state/ingest-health-panel";
-import { ViewExportMenu } from "@/components/state/view-export-menu";
+import { useRegisterViewExport } from "@/components/state/view-export-context";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SERIES_COLORS, TOKEN_MIX_COLORS } from "@/lib/charts";
@@ -527,12 +527,18 @@ export default function OverviewPage() {
       branchTop.data
     ]
   );
+  const exportConfig = useMemo(
+    () => ({
+      title: "Overview",
+      filters,
+      datasets: exportDatasets
+    }),
+    [exportDatasets, filters]
+  );
+  useRegisterViewExport(exportConfig);
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-end">
-        <ViewExportMenu title="Overview" filters={filters} datasets={exportDatasets} />
-      </div>
       {kpis.error ? (
         <ErrorState onRetry={kpis.refetch} />
       ) : (
@@ -550,8 +556,6 @@ export default function OverviewPage() {
           ))}
         </section>
       )}
-
-      <IngestHealthPanel state={ingestHealth} />
 
       <CardPanel
         title="Usage Volume"
@@ -992,6 +996,8 @@ export default function OverviewPage() {
           )}
         </CardPanel>
       </section>
+
+      <IngestHealthPanel state={ingestHealth} />
     </div>
   );
 }

@@ -2,19 +2,22 @@
 
 import { useState } from "react";
 import { usePathname } from "next/navigation";
-import { HelpCircle } from "lucide-react";
+import { Download, HelpCircle } from "lucide-react";
 
 import { getPageTitle } from "@/lib/nav";
 import GlobalFiltersBar from "@/components/filters/global-filters-bar";
 import SyncStatus from "@/components/layout/sync-status";
 import ThemeToggle from "@/components/layout/theme-toggle";
 import { PanelExpandModal } from "@/components/state/panel-expand-modal";
+import { ViewExportMenu } from "@/components/state/view-export-menu";
+import { useViewExport } from "@/components/state/view-export-context";
 import { Button } from "@/components/ui/button";
 
 const TopHeader = () => {
   const pathname = usePathname();
   const title = getPageTitle(pathname);
   const [helpOpen, setHelpOpen] = useState(false);
+  const { config: exportConfig } = useViewExport();
 
   return (
     <header className="sticky top-0 z-30 border-b border-border/20 bg-background/70 backdrop-blur">
@@ -28,6 +31,24 @@ const TopHeader = () => {
           </div>
           <div className="flex items-center gap-2">
             <SyncStatus />
+            {exportConfig ? (
+              <ViewExportMenu
+                title={exportConfig.title}
+                filters={exportConfig.filters}
+                datasets={exportConfig.datasets}
+              />
+            ) : (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled
+                title="Nothing exportable on this page."
+              >
+                <Download className="h-3.5 w-3.5" />
+                Export view
+              </Button>
+            )}
             <ThemeToggle />
             <Button
               variant="ghost"

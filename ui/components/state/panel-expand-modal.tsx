@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { Maximize2, X } from "lucide-react";
 
 import { ExportMenu } from "@/components/state/export-menu";
@@ -64,8 +65,9 @@ const PanelExpandModal = ({
   }, [open, onClose]);
 
   if (!open) return null;
+  if (typeof document === "undefined") return null;
 
-  return (
+  return createPortal(
     <div className="panel-expand-modal fixed inset-0 z-50">
       <div className="absolute inset-0 bg-black/55 backdrop-blur-sm" onClick={onClose} />
       <div
@@ -174,7 +176,8 @@ const PanelExpandModal = ({
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
 

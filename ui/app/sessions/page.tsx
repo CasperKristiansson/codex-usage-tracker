@@ -12,7 +12,7 @@ import { ErrorState } from "@/components/state/error-state";
 import { Input } from "@/components/ui/input";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ViewExportMenu } from "@/components/state/view-export-menu";
+import { useRegisterViewExport } from "@/components/state/view-export-context";
 import { buildFilterQuery } from "@/lib/api";
 import { isEmptyResponse } from "@/lib/data";
 import { formatCompactNumber } from "@/lib/format";
@@ -317,6 +317,16 @@ export default function SessionsPage() {
     }),
     [activeView, sessions.data, toolCalls.data, turns.data]
   );
+  useRegisterViewExport(
+    useMemo(
+      () => ({
+        title: "Sessions",
+        filters,
+        datasets: exportDatasets
+      }),
+      [exportDatasets, filters]
+    )
+  );
 
   const renderPanelState = <T,>(
     state: {
@@ -337,9 +347,6 @@ export default function SessionsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-end">
-        <ViewExportMenu title="Sessions" filters={filters} datasets={exportDatasets} />
-      </div>
       <CardPanel
         title={panelTitle}
         subtitle={panelSubtitle}
