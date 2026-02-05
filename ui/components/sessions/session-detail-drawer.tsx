@@ -77,6 +77,7 @@ export const SessionDetailDrawer = ({
   const annotations = useApi<SessionAnnotations>(annotationsKey, {
     disabled: !sessionId
   });
+  const annotationData = annotations.data;
   const tagOptions = useApi<{ tags: string[] }>("/api/sessions/tags", {
     ttl: 60_000
   });
@@ -122,17 +123,17 @@ export const SessionDetailDrawer = ({
       });
       return;
     }
-    if (!annotations.data) return;
+    if (!annotationData) return;
     setAnnotationState((prev) => ({
       ...prev,
-      tags: annotations.data?.tags ?? [],
-      note: annotations.data?.note ?? "",
-      baselineTags: annotations.data?.tags ?? [],
-      baselineNote: annotations.data?.note ?? "",
+      tags: annotationData?.tags ?? [],
+      note: annotationData?.note ?? "",
+      baselineTags: annotationData?.tags ?? [],
+      baselineNote: annotationData?.note ?? "",
       status: "idle",
       error: ""
     }));
-  }, [annotations.data?.updated_at, annotations.data?.session_id, sessionId]);
+  }, [annotationData, sessionId]);
 
   const kpis = useMemo(() => {
     const totalTokens = detail.data?.totals?.total_tokens ?? null;
@@ -160,7 +161,7 @@ export const SessionDetailDrawer = ({
       { label: "Git commit", value: session.git_commit_hash },
       { label: "Repo", value: session.git_repository_url }
     ].filter((item) => item.value);
-  }, [detail.data?.session]);
+  }, [detail.data?.session, settings.timezone]);
 
   const baseParams = useMemo(() => {
     return new URLSearchParams(buildFilterQuery(filters));

@@ -52,6 +52,8 @@ export const useSync = (filters: Filters) => {
     ttl: 1_000,
     disabled: !syncId
   });
+  const progressRefetch = progress.refetch;
+  const statusRefetch = status.refetch;
   const [startError, setStartError] = useState<string | null>(null);
   const [isStarting, setIsStarting] = useState(false);
   const handledSyncIdRef = useRef<string | null>(null);
@@ -82,14 +84,14 @@ export const useSync = (filters: Filters) => {
       }
       handledSyncIdRef.current = null;
       setSyncId(payload.sync_id);
-      progress.refetch();
-      status.refetch();
+      progressRefetch();
+      statusRefetch();
     } catch (error) {
       setStartError(error instanceof Error ? error.message : "Sync failed");
     } finally {
       setIsStarting(false);
     }
-  }, [filters.from, filters.to, progress, status, settings.dbPath]);
+  }, [filters.from, filters.to, progressRefetch, statusRefetch, settings.dbPath]);
 
   const statusValue = progress.data?.status;
   const isTerminal = statusValue === "completed" || statusValue === "failed";
@@ -103,7 +105,7 @@ export const useSync = (filters: Filters) => {
       const now = Date.now();
       if (now - lastPollRef.current < pollIntervalMs - 250) return;
       lastPollRef.current = now;
-      progress.refetch();
+      progressRefetch();
     },
     pollIntervalMs,
     Boolean(syncId) && !isTerminal
@@ -113,10 +115,10 @@ export const useSync = (filters: Filters) => {
     if (!syncId || statusValue !== "unknown") return;
     const id = window.setTimeout(() => {
       setSyncId(null);
-      status.refetch();
+      statusRefetch();
     }, 15_000);
     return () => window.clearTimeout(id);
-  }, [syncId, statusValue, status.refetch]);
+  }, [syncId, statusValue, statusRefetch]);
 
   useEffect(() => {
     if (!syncId) return;
@@ -124,8 +126,8 @@ export const useSync = (filters: Filters) => {
     if (handledSyncIdRef.current === syncId) return;
     handledSyncIdRef.current = syncId;
     setSyncId(null);
-    status.refetch();
-  }, [syncId, statusValue, status.refetch]);
+    statusRefetch();
+  }, [syncId, statusValue, statusRefetch]);
 
   return {
     status,

@@ -50,6 +50,8 @@ export type DbInsights = {
 
 const DEFAULT_EXPORT_LIMIT = 5000;
 const MAX_EXPORT_LIMIT = 50000;
+const EMPTY_TABLE_SIZES: Array<{ name: string; rows: number; bytes?: number | null }> =
+  [];
 
 const parseFilename = (header: string | null) => {
   if (!header) return null;
@@ -68,7 +70,7 @@ export default function DbInsightsPage() {
   const [exporting, setExporting] = useState<null | "json" | "csv">(null);
   const [exportError, setExportError] = useState<string | null>(null);
 
-  const tableSizes = insights.data?.table_sizes ?? [];
+  const tableSizes = insights.data?.table_sizes ?? EMPTY_TABLE_SIZES;
   const totalTableBytes = useMemo(
     () =>
       tableSizes.reduce((sum, row) => sum + (row.bytes ?? 0), 0),
@@ -186,7 +188,7 @@ export default function DbInsightsPage() {
           {renderPanelState(
             insights,
             "No database metadata yet.",
-            (data) => (
+            () => (
               <div className="space-y-3 text-xs">
                 <div className="rounded-lg border border-border/20 bg-muted/20 px-3 py-2">
                   <div className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">
@@ -255,7 +257,7 @@ export default function DbInsightsPage() {
           {renderPanelState(
             insights,
             "No ingestion metadata yet.",
-            (data) => (
+            () => (
               <div className="space-y-3 text-xs">
                 <div className="grid gap-2 sm:grid-cols-2">
                   <div className="rounded-lg border border-border/20 bg-muted/20 px-3 py-2">

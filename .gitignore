@@ -10,3 +10,6 @@ ui/.sync
 dist
 ui/tests/fixtures/usage.sqlite
 ui/tests/fixtures/config.json
+.tmp/
+ui/test-results/
+ui/tests/fixtures/*.sqlite*

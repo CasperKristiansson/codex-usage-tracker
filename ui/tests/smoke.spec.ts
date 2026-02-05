@@ -2,8 +2,8 @@ import { test, expect } from "@playwright/test";
 
 test("overview loads", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByText("Usage Volume")).toBeVisible();
-  await expect(page.getByText("Token Mix")).toBeVisible();
+  await expect(page.getByTestId("overview-usage-volume")).toBeVisible();
+  await expect(page.getByTestId("overview-token-mix")).toBeVisible();
 });
 
 test("overview kpis render", async ({ page }) => {
@@ -47,6 +47,14 @@ test("keyboard shortcuts", async ({ page }) => {
 });
 
 test("sessions drawer shows tool calls and messages", async ({ page }) => {
+  const sessionsUrl =
+    "/api/sessions/list?from=2000-01-01T00:00:00%2B00:00&to=2100-01-01T00:00:00%2B00:00&bucket=auto&topN=10&page=1&pageSize=25";
+  const response = await page.request.get(sessionsUrl);
+  if (!response.ok()) {
+    const body = await response.text();
+    throw new Error(`sessions list failed: ${response.status()} ${body}`);
+  }
+
   await page.goto(
     "/sessions?from=2000-01-01T00:00:00+00:00&to=2100-01-01T00:00:00+00:00&bucket=auto&topN=10"
   );

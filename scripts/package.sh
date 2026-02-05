@@ -32,7 +32,7 @@ if [ -z "${sqlite_binding}" ]; then
   fi
 fi
 
-pnpm --dir "${UI_DIR}" build
+pnpm --dir "${UI_DIR}" exec next build --webpack
 
 rm -rf "${DIST_DIR}"
 mkdir -p "${DIST_DIR}"

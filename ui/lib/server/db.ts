@@ -15,7 +15,7 @@ let databaseLoadError: Error | null = null;
 const loadDatabase = () => {
   if (Database || databaseLoadError) return;
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     Database = require("better-sqlite3");
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -25,8 +25,8 @@ const loadDatabase = () => {
         message,
         `Node: ${process.versions.node}`,
         "Try using a supported Node LTS version (20 or 22) and rerun ./scripts/install.sh.",
-        "On macOS, you may need Xcode Command Line Tools: xcode-select --install."
-      ].join(" ")
+        "On macOS, you may need Xcode Command Line Tools: xcode-select --install.",
+      ].join(" "),
     );
   }
 };
@@ -60,7 +60,7 @@ const ensureDbExists = (dbPath: string) => {
   const pythonPath = resolvePythonPath();
   const env = {
     ...process.env,
-    PYTHONPATH: `${pythonPath}${path.delimiter}${process.env.PYTHONPATH ?? ""}`
+    PYTHONPATH: `${pythonPath}${path.delimiter}${process.env.PYTHONPATH ?? ""}`,
   };
 
   try {
@@ -72,15 +72,16 @@ const ensureDbExists = (dbPath: string) => {
           "from pathlib import Path",
           "import sys",
           "from codex_usage_tracker.store import UsageStore",
-          "UsageStore(Path(sys.argv[1])).close()"
+          "UsageStore(Path(sys.argv[1])).close()",
         ].join("; "),
-        dbPath
+        dbPath,
       ],
-      { env, stdio: "ignore" }
+      { env, stdio: "ignore" },
     );
     initCache.add(dbPath);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to init DB";
+    const message =
+      error instanceof Error ? error.message : "Failed to init DB";
     throw new Error(message);
   }
 };
@@ -102,7 +103,7 @@ export const getDb = (dbPathOrParams?: string | URLSearchParams | null) => {
   }
   const dbPath =
     typeof dbPathOrParams === "string"
-      ? normalizeDbPath(dbPathOrParams) ?? resolveDbPath()
+      ? (normalizeDbPath(dbPathOrParams) ?? resolveDbPath())
       : resolveDbPathFromParams(dbPathOrParams ?? null);
 
   if (!dbCache.has(dbPath)) {
@@ -111,8 +112,8 @@ export const getDb = (dbPathOrParams?: string | URLSearchParams | null) => {
       dbPath,
       new Database(dbPath, {
         readonly: true,
-        fileMustExist: true
-      })
+        fileMustExist: true,
+      }),
     );
   }
   return dbCache.get(dbPath)!;

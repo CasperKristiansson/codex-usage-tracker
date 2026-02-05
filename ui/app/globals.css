@@ -4,6 +4,10 @@
 
 :root {
   color-scheme: dark;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Helvetica Neue",
+    Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji";
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
   --panel-padding-x: 1rem;
   --panel-padding-y: 0.75rem;
   --panel-body-padding-x: 1rem;
