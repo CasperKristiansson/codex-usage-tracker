@@ -26,6 +26,7 @@ import { Label } from "@/components/ui/label";
 import { TagInput } from "@/components/ui/tag-input";
 
 const RANGE_PRESETS = [
+  { value: "all", label: "All time" },
   { value: "24h", label: "24h", hours: 24 },
   { value: "7d", label: "7d", hours: 24 * 7 },
   { value: "14d", label: "14d", hours: 24 * 14 },
@@ -39,6 +40,12 @@ type FilterOptions = {
   models: string[];
   directories: string[];
   sources: string[];
+};
+
+type MetaResponse = {
+  distinct?: { sources?: number };
+  min_timestamp_utc?: string | null;
+  max_timestamp_utc?: string | null;
 };
 
 const inferPreset = (from: string, to: string) => {
@@ -59,18 +66,44 @@ const GlobalFiltersBar = () => {
   const { settings } = useSettings();
   const timeZone = settings.timezone;
   const defaults = useMemo(() => getDefaultFilters(timeZone), [timeZone]);
-  const meta = useEndpoint<{ distinct?: { sources?: number } }>("/api/meta");
+  const meta = useEndpoint<MetaResponse>("/api/meta");
   const hasMultipleSources = (meta.data?.distinct?.sources ?? 0) > 1;
+
+  const rangeParam = searchParams.get("range") ?? "";
+  const resolveAllTimeRange = useCallback(() => {
+    const minMs = parseIsoToMs(meta.data?.min_timestamp_utc ?? null);
+    const maxMs = parseIsoToMs(meta.data?.max_timestamp_utc ?? null);
+    const fromDate = minMs !== null ? new Date(minMs) : new Date(0);
+    // Add a small buffer so second-precision filters include fractional-second rows.
+    const toDate = maxMs !== null ? new Date(maxMs + 1000) : new Date();
+    return {
+      from: toZonedIso(fromDate, timeZone),
+      to: toZonedIso(toDate, timeZone)
+    };
+  }, [meta.data?.min_timestamp_utc, meta.data?.max_timestamp_utc, timeZone]);
 
   useEffect(() => {
     const next = buildParamsWithDefaults(
       new URLSearchParams(searchParams.toString()),
       defaults
     );
+    if (rangeParam === "all") {
+      const { from, to } = resolveAllTimeRange();
+      if (parseIsoToMs(next.get("from")) === null) next.set("from", from);
+      if (parseIsoToMs(next.get("to")) === null) next.set("to", to);
+      next.set("range", "all");
+    }
     if (next.toString() !== searchParams.toString()) {
       router.replace(asRoute(`${pathname}?${next.toString()}`), { scroll: false });
     }
-  }, [searchParams, defaults, router, pathname]);
+  }, [
+    searchParams,
+    defaults,
+    router,
+    pathname,
+    rangeParam,
+    resolveAllTimeRange
+  ]);
 
   const filters = useMemo(
     () => parseFilters(new URLSearchParams(searchParams.toString()), defaults),
@@ -85,7 +118,11 @@ const GlobalFiltersBar = () => {
     [filters.from, filters.to]
   );
   const [customSelected, setCustomSelected] = useState(false);
-  const rangePreset = customSelected ? "custom" : inferredPreset;
+  const rangePreset = customSelected
+    ? "custom"
+    : rangeParam === "all"
+      ? "all"
+      : inferredPreset;
   const [fromInput, setFromInput] = useState(
     formatDateTimeInput(filters.from, timeZone)
   );
@@ -136,22 +173,41 @@ const GlobalFiltersBar = () => {
   const handlePresetChange = (value: string) => {
     if (value === "custom") {
       setCustomSelected(true);
+      const params = new URLSearchParams(searchParams.toString());
+      params.delete("range");
+      replaceParams(params);
       return;
     }
     setCustomSelected(false);
+
+    if (value === "all") {
+      const { from, to } = resolveAllTimeRange();
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("range", "all");
+      params.set("from", from);
+      params.set("to", to);
+      replaceParams(params);
+      return;
+    }
+
     const now = new Date();
     const preset = RANGE_PRESETS.find((entry) => entry.value === value);
     if (!preset?.hours) return;
     const from = new Date(now.getTime() - preset.hours * 60 * 60 * 1000);
-    updateParams({ from: toZonedIso(from, timeZone), to: toZonedIso(now, timeZone) });
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("range");
+    params.set("from", toZonedIso(from, timeZone));
+    params.set("to", toZonedIso(now, timeZone));
+    replaceParams(params);
   };
 
   const handleCustomChange = (type: "from" | "to", value: string) => {
     const iso = parseDateTimeInput(value, timeZone);
     if (!iso) return;
-    updateParams({
-      [type]: iso
-    } as Partial<Record<keyof typeof filters, string>>);
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("range");
+    params.set(type, iso);
+    replaceParams(params);
   };
 
   return (
