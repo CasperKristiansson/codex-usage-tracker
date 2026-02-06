@@ -1583,3 +1583,35 @@ class UsageStore:
         if commit:
             self.conn.commit()
         return int(messages or 0), int(tool_calls or 0)
+
+    def purge_payloads(self, commit: bool = True) -> tuple[int, int]:
+        """
+        Delete stored content messages and redact tool call payload fields.
+
+        Keeps tool call metadata (type/name/status/command/session_id/turn_index/timestamps).
+        """
+        cur = self.conn.cursor()
+        messages = cur.execute(
+            "SELECT COUNT(*) AS count FROM content_messages"
+        ).fetchone()["count"]
+        tool_rows = cur.execute(
+            """
+            SELECT COUNT(*) AS count
+            FROM tool_calls
+            WHERE input_text IS NOT NULL OR output_text IS NOT NULL
+            """
+        ).fetchone()["count"]
+        self.conn.execute("DELETE FROM content_messages")
+        self.conn.execute("UPDATE tool_calls SET input_text = NULL, output_text = NULL")
+        if commit:
+            self.conn.commit()
+        return int(messages or 0), int(tool_rows or 0)
+
+    def vacuum(self) -> None:
+        # VACUUM cannot run inside a transaction.
+        previous = self.conn.isolation_level
+        self.conn.isolation_level = None
+        try:
+            self.conn.execute("VACUUM")
+        finally:
+            self.conn.isolation_level = previous

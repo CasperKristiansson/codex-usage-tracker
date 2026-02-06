@@ -6,12 +6,17 @@ from pathlib import Path
 import sys
 import sqlite3
 import subprocess
+from typing import Optional
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC_PATH = str(ROOT / "src")
 
 
-def _run_export(rollouts_dir: Path, db_path: Path, no_content: bool = False) -> None:
+def _run_export(
+    rollouts_dir: Path,
+    db_path: Path,
+    extra_args: Optional[list[str]] = None,
+) -> None:
     env = os.environ.copy()
     env["PYTHONPATH"] = f"{SRC_PATH}{os.pathsep}{env.get('PYTHONPATH', '')}"
     out_path = db_path.parent / "export.json"
@@ -29,8 +34,8 @@ def _run_export(rollouts_dir: Path, db_path: Path, no_content: bool = False) -> 
         "--out",
         str(out_path),
     ]
-    if no_content:
-        command.append("--no-content")
+    if extra_args:
+        command.extend(extra_args)
     subprocess.run(command, check=True, env=env, capture_output=True, text=True)
 
 
@@ -157,7 +162,7 @@ class RolloutIngestTests(unittest.TestCase):
             rollouts_dir = root / "rollouts"
             _write_rollout_file(rollouts_dir)
             db_path = root / "usage.sqlite"
-            _run_export(rollouts_dir, db_path, no_content=False)
+            _run_export(rollouts_dir, db_path, extra_args=["--with-payloads"])
 
             conn = sqlite3.connect(db_path)
             try:
@@ -211,13 +216,48 @@ class RolloutIngestTests(unittest.TestCase):
             finally:
                 conn.close()
 
+    def test_ingest_rollout_defaults_to_no_payloads(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            rollouts_dir = root / "rollouts"
+            _write_rollout_file(rollouts_dir)
+            db_path = root / "usage.sqlite"
+            _run_export(rollouts_dir, db_path)
+
+            conn = sqlite3.connect(db_path)
+            try:
+                tool_calls = conn.execute("SELECT COUNT(*) FROM tool_calls").fetchone()[0]
+                messages = conn.execute(
+                    "SELECT COUNT(*) FROM content_messages"
+                ).fetchone()[0]
+                self.assertGreater(tool_calls, 0)
+                self.assertEqual(messages, 0)
+
+                tool_row = conn.execute(
+                    "SELECT tool_type, command, input_text, output_text FROM tool_calls"
+                ).fetchone()
+                self.assertIsNotNone(tool_row)
+                self.assertEqual(tool_row[0], "local_shell")
+                self.assertIn("git", tool_row[1] or "")
+                self.assertIsNone(tool_row[2])
+                self.assertIsNone(tool_row[3])
+
+                events = conn.execute("SELECT COUNT(*) FROM events").fetchone()[0]
+                activity = conn.execute(
+                    "SELECT COUNT(*) FROM activity_events"
+                ).fetchone()[0]
+                self.assertGreater(events, 0)
+                self.assertGreater(activity, 0)
+            finally:
+                conn.close()
+
     def test_ingest_rollout_no_content_redacts(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             rollouts_dir = root / "rollouts"
             _write_rollout_file(rollouts_dir)
             db_path = root / "usage.sqlite"
-            _run_export(rollouts_dir, db_path, no_content=True)
+            _run_export(rollouts_dir, db_path, extra_args=["--no-content"])
 
             conn = sqlite3.connect(db_path)
             try:

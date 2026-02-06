@@ -45,6 +45,10 @@ type TimezoneSettings = {
   timezone: string;
 };
 
+type PrivacySettings = {
+  capture_payloads: boolean;
+};
+
 export default function SettingsPage() {
   const { settings, updateSettings, resetSettings } = useSettings();
   const dbInfo = useApi<DbInfo>("/api/settings/db_info", { ttl: 60_000 });
@@ -52,6 +56,9 @@ export default function SettingsPage() {
     ttl: 60_000
   });
   const timezoneSettings = useApi<TimezoneSettings>("/api/settings/timezone", {
+    ttl: 60_000
+  });
+  const privacySettings = useApi<PrivacySettings>("/api/settings/privacy", {
     ttl: 60_000
   });
 
@@ -65,6 +72,9 @@ export default function SettingsPage() {
   const [timezoneDraft, setTimezoneDraft] = useState(settings.timezone);
   const [isSavingTimezone, setIsSavingTimezone] = useState(false);
   const [timezoneError, setTimezoneError] = useState<string | null>(null);
+  const [capturePayloadsDraft, setCapturePayloadsDraft] = useState(false);
+  const [isSavingPrivacy, setIsSavingPrivacy] = useState(false);
+  const [privacyError, setPrivacyError] = useState<string | null>(null);
 
   useEffect(() => {
     setDbInput(settings.dbPath);
@@ -86,6 +96,11 @@ export default function SettingsPage() {
     setPricingDraft(pricingSettings.data.pricing);
     setCurrencyLabel(pricingSettings.data.currency_label);
   }, [pricingSettings.data]);
+
+  useEffect(() => {
+    if (!privacySettings.data) return;
+    setCapturePayloadsDraft(Boolean(privacySettings.data.capture_payloads));
+  }, [privacySettings.data]);
 
   const handleTest = async () => {
     setIsTesting(true);
@@ -123,6 +138,15 @@ export default function SettingsPage() {
     }
     const query = params.toString();
     return query ? `/api/settings/timezone?${query}` : "/api/settings/timezone";
+  };
+
+  const buildPrivacyUrl = () => {
+    const params = new URLSearchParams();
+    if (settings.dbPath?.trim()) {
+      params.set("db", settings.dbPath.trim());
+    }
+    const query = params.toString();
+    return query ? `/api/settings/privacy?${query}` : "/api/settings/privacy";
   };
 
   const updateRate = (
@@ -212,6 +236,30 @@ export default function SettingsPage() {
     const browserTz =
       Intl.DateTimeFormat().resolvedOptions().timeZone || DEFAULT_TIMEZONE;
     setTimezoneDraft(browserTz);
+  };
+
+  const handleSavePrivacy = async () => {
+    setIsSavingPrivacy(true);
+    setPrivacyError(null);
+    try {
+      const res = await fetch(buildPrivacyUrl(), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ capture_payloads: capturePayloadsDraft })
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || "Failed to save privacy settings");
+      }
+      await res.json();
+      privacySettings.refetch();
+    } catch (error) {
+      setPrivacyError(
+        error instanceof Error ? error.message : "Failed to save privacy settings"
+      );
+    } finally {
+      setIsSavingPrivacy(false);
+    }
   };
 
   const activeInfo = testInfo ?? dbInfo.data ?? null;
@@ -340,6 +388,51 @@ export default function SettingsPage() {
             </div>
             {timezoneError ? (
               <div className="text-xs text-rose-400">{timezoneError}</div>
+            ) : null}
+          </div>
+        )}
+      </CardPanel>
+
+      <CardPanel title="Privacy" subtitle="Payload capture" testId="settings-privacy">
+        {privacySettings.isLoading ? (
+          <Skeleton className="h-20 w-full" />
+        ) : privacySettings.error ? (
+          <ErrorState onRetry={privacySettings.refetch} />
+        ) : (
+          <div className="space-y-3">
+            <label className="flex items-start gap-2 text-xs text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={capturePayloadsDraft}
+                onChange={(event) => setCapturePayloadsDraft(event.target.checked)}
+                disabled={isSavingPrivacy}
+              />
+              <span className="leading-5">
+                Store full message text and tool call payloads in the DB
+                <span className="block text-muted-foreground/80">
+                  When disabled (default), the DB will not store messages, and tool call input/output
+                  payloads are redacted. Existing payloads remain until you run{" "}
+                  <span className="font-mono text-foreground">codex-track purge-payloads</span>{" "}
+                  (then optionally{" "}
+                  <span className="font-mono text-foreground">codex-track vacuum</span>).
+                </span>
+              </span>
+            </label>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button size="sm" onClick={handleSavePrivacy} disabled={isSavingPrivacy}>
+                {isSavingPrivacy ? "Saving" : "Save privacy"}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setCapturePayloadsDraft(false)}
+                disabled={isSavingPrivacy}
+              >
+                Reset default
+              </Button>
+            </div>
+            {privacyError ? (
+              <div className="text-xs text-rose-400">{privacyError}</div>
             ) : null}
           </div>
         )}

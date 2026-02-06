@@ -1,6 +1,7 @@
 import csv
 import io
 import json
+import re
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -47,7 +48,16 @@ def default_pricing() -> PricingConfig:
         unit="per_1m",
         per_unit=per_unit,
         models={
+            # Note: these defaults are conservative and primarily used for local
+            # estimation. Users can override via config.json.
             "gpt-5.2": PricingModel(
+                input_rate=1.750,
+                cached_input_rate=0.175,
+                output_rate=14.000,
+            ),
+            # Some rollups/events may report a major-only "gpt-5" model name.
+            # Treat as equivalent to gpt-5.2 unless overridden.
+            "gpt-5": PricingModel(
                 input_rate=1.750,
                 cached_input_rate=0.175,
                 output_rate=14.000,
@@ -63,6 +73,19 @@ def default_pricing() -> PricingConfig:
                 output_rate=10.00,
             ),
             "gpt-5.2-codex": PricingModel(
+                input_rate=1.75,
+                cached_input_rate=0.175,
+                output_rate=14.00,
+            ),
+            # Some environments may report these names even if they are not
+            # directly available via the public API. We map them to gpt-5.2-codex
+            # by default to keep cost coverage high.
+            "gpt-5-codex": PricingModel(
+                input_rate=1.75,
+                cached_input_rate=0.175,
+                output_rate=14.00,
+            ),
+            "gpt-5.3-codex": PricingModel(
                 input_rate=1.75,
                 cached_input_rate=0.175,
                 output_rate=14.00,
@@ -161,7 +184,10 @@ def estimate_event_cost(
     event: Dict[str, object], pricing: PricingConfig
 ) -> Optional[float]:
     model = event.get("model")
-    if not model or model not in pricing.models:
+    if not isinstance(model, str) or not model.strip():
+        return None
+    model = _resolve_pricing_model_name(model, pricing)
+    if not model:
         return None
     rates = pricing.models[model]
     input_tokens = int(event.get("input_tokens") or 0)
@@ -174,6 +200,45 @@ def estimate_event_cost(
         + (output_tokens * rates.output_rate)
     ) / pricing.per_unit
     return cost
+
+
+_MODEL_ALIASES: Dict[str, str] = {
+    # Keep this small and explicit; overrides in config.json can always replace it.
+    "gpt-5.3-codex": "gpt-5.2-codex",
+    "gpt-5-codex": "gpt-5.2-codex",
+    "gpt-5": "gpt-5.2",
+}
+
+
+_DATED_MODEL_SUFFIX_RE = re.compile(r"-\d{4}-\d{2}-\d{2}$")
+
+
+def _resolve_pricing_model_name(model: str, pricing: PricingConfig) -> Optional[str]:
+    # Exact match first.
+    if model in pricing.models:
+        return model
+
+    cleaned = model.strip()
+    if cleaned in pricing.models:
+        return cleaned
+
+    # Strip common UI/status decorations like "gpt-5.2-codex (fast)".
+    if " (" in cleaned and cleaned.endswith(")"):
+        base = cleaned.split(" (", 1)[0].strip()
+        if base in pricing.models:
+            return base
+
+    # Strip dated suffixes like "gpt-5.2-codex-2026-01-15".
+    undated = _DATED_MODEL_SUFFIX_RE.sub("", cleaned)
+    if undated != cleaned and undated in pricing.models:
+        return undated
+
+    # Explicit aliases.
+    alias = _MODEL_ALIASES.get(cleaned)
+    if alias and alias in pricing.models:
+        return alias
+
+    return None
 
 
 def compute_costs(

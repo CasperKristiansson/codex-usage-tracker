@@ -9,10 +9,15 @@ import webbrowser
 from dataclasses import dataclass, field
 from datetime import datetime, time as dt_time, timedelta
 from pathlib import Path
-from typing import Callable, Dict, Iterable, Optional, Tuple
+from typing import Callable, Dict, Iterable, Literal, Optional, Tuple
 from zoneinfo import ZoneInfo
 
-from .config import DEFAULT_TIMEZONE, is_valid_timezone, resolve_timezone
+from .config import (
+    DEFAULT_TIMEZONE,
+    is_valid_timezone,
+    resolve_capture_payloads,
+    resolve_timezone,
+)
 from .hash_utils import compute_file_hash
 from .platform import default_db_path, default_rollouts_dir
 from .report import (
@@ -64,6 +69,34 @@ class CliLogStats:
     status_snapshots: int = 0
     usage_lines: int = 0
     events: int = 0
+
+
+IngestMode = Literal["full", "redact_payloads", "none"]
+
+
+def _resolve_ingest_mode(args: argparse.Namespace, db_path: Path) -> IngestMode:
+    """
+    Resolve ingest mode from flags and config.json.
+
+    Defaults to redacting payloads (privacy + smaller DB) unless explicitly enabled.
+    """
+    no_content = bool(getattr(args, "no_content", False))
+    no_payloads = bool(getattr(args, "no_payloads", False))
+    with_payloads = bool(getattr(args, "with_payloads", False))
+
+    if sum([no_content, no_payloads, with_payloads]) > 1:
+        raise ValueError(
+            "Ingest flags are mutually exclusive: use only one of "
+            "--no-content/--redact, --no-payloads, or --with-payloads."
+        )
+
+    if no_content:
+        return "none"
+    if with_payloads:
+        return "full"
+    if no_payloads:
+        return "redact_payloads"
+    return "full" if resolve_capture_payloads(db_path) else "redact_payloads"
 
 
 class ProgressPrinter:
@@ -156,7 +189,7 @@ def ingest_rollouts(
     ] = None,
     verbose: bool = False,
     strict: bool = False,
-    no_content: bool = False,
+    ingest_mode: "IngestMode" = "redact_payloads",
     error_sample_limit: int = 5,
 ) -> IngestStats:
     store.ensure_ingest_version()
@@ -167,6 +200,10 @@ def ingest_rollouts(
     progress = ProgressPrinter(stats.files_total)
     turn_counters: Dict[str, int] = {}
     batch_size = 2000
+
+    include_messages = ingest_mode == "full"
+    include_tool_calls = ingest_mode in ("full", "redact_payloads")
+    include_tool_payloads = ingest_mode == "full"
 
     def _update_timing(current: int, file_path: Optional[Path]) -> None:
         now_ts = time.time()
@@ -251,7 +288,14 @@ def ingest_rollouts(
                             continue
                         stats.lines += 1
                         try:
-                            parsed, context = parse_rollout_line(raw, context, tz)
+                            parsed, context = parse_rollout_line(
+                                raw,
+                                context,
+                                tz,
+                                include_messages=include_messages,
+                                include_tool_calls=include_tool_calls,
+                                include_tool_payloads=include_tool_payloads,
+                            )
                         except Exception as exc:
                             _record_error(file_path, line_number, raw, exc)
                             continue
@@ -406,7 +450,7 @@ def ingest_rollouts(
                                     )
                                 )
 
-                        if parsed.messages and not no_content:
+                        if parsed.messages and include_messages:
                             for message in parsed.messages:
                                 pending_messages.append(
                                     MessageEvent(
@@ -421,7 +465,7 @@ def ingest_rollouts(
                                     )
                                 )
 
-                        if parsed.tool_calls and not no_content:
+                        if parsed.tool_calls and include_tool_calls:
                             for tool_call in parsed.tool_calls:
                                 pending_tool_calls.append(
                                     ToolCallEvent(
@@ -455,13 +499,13 @@ def ingest_rollouts(
                                 commit=False,
                             )
                             pending_activity = []
-                        if not no_content and len(pending_messages) >= batch_size:
+                        if include_messages and len(pending_messages) >= batch_size:
                             stats.events += store.insert_messages_bulk(
                                 pending_messages,
                                 commit=False,
                             )
                             pending_messages = []
-                        if not no_content and len(pending_tool_calls) >= batch_size:
+                        if include_tool_calls and len(pending_tool_calls) >= batch_size:
                             stats.events += store.insert_tool_calls_bulk(
                                 pending_tool_calls,
                                 commit=False,
@@ -473,11 +517,12 @@ def ingest_rollouts(
                         pending_activity,
                         commit=False,
                     )
-                    if not no_content:
+                    if include_messages:
                         stats.events += store.insert_messages_bulk(
                             pending_messages,
                             commit=False,
                         )
+                    if include_tool_calls:
                         stats.events += store.insert_tool_calls_bulk(
                             pending_tool_calls,
                             commit=False,
@@ -873,7 +918,17 @@ def build_parser() -> argparse.ArgumentParser:
             "--no-content",
             "--redact",
             action="store_true",
-            help="Skip storing message and tool call content (use purge-content to clear existing data)",
+            help="Do not store any content messages or tool calls",
+        )
+        target.add_argument(
+            "--no-payloads",
+            action="store_true",
+            help="Store tool call metadata but redact message and tool payloads (default)",
+        )
+        target.add_argument(
+            "--with-payloads",
+            action="store_true",
+            help="Store full message and tool payloads (overrides config)",
         )
 
     report_parser = subparsers.add_parser("report", help="Aggregate usage reports")
@@ -995,6 +1050,20 @@ def build_parser() -> argparse.ArgumentParser:
     purge_parser.add_argument("--db", type=Path, default=None)
     purge_parser.add_argument("--yes", action="store_true")
 
+    purge_payloads_parser = subparsers.add_parser(
+        "purge-payloads",
+        help="Delete stored content messages and redact stored tool call payloads",
+    )
+    purge_payloads_parser.add_argument("--db", type=Path, default=None)
+    purge_payloads_parser.add_argument("--yes", action="store_true")
+
+    vacuum_parser = subparsers.add_parser(
+        "vacuum",
+        help="Run VACUUM to reclaim DB space after deletes (can take a while)",
+    )
+    vacuum_parser.add_argument("--db", type=Path, default=None)
+    vacuum_parser.add_argument("--yes", action="store_true")
+
     return parser
 
 
@@ -1004,6 +1073,7 @@ def _ingest_for_range(
     start: Optional[datetime],
     end: Optional[datetime],
     tz: ZoneInfo,
+    ingest_mode: IngestMode,
 ) -> None:
     rollouts_dir = args.rollouts if args.rollouts else default_rollouts_dir()
     ingest_rollouts(
@@ -1014,7 +1084,7 @@ def _ingest_for_range(
         tz,
         verbose=args.verbose,
         strict=args.strict,
-        no_content=args.no_content,
+        ingest_mode=ingest_mode,
     )
 
 
@@ -1047,6 +1117,7 @@ def _run_watch(
     tz: ZoneInfo,
     start: Optional[datetime],
     end: Optional[datetime],
+    ingest_mode: IngestMode,
 ) -> None:
     rollouts_dir = args.rollouts if args.rollouts else default_rollouts_dir()
     interval = max(1.0, float(args.interval))
@@ -1067,7 +1138,7 @@ def _run_watch(
                 tz,
                 verbose=args.verbose,
                 strict=args.strict,
-                no_content=args.no_content,
+                ingest_mode=ingest_mode,
             )
 
             last_scan_ts = scan_start
@@ -1125,6 +1196,39 @@ def main() -> None:
         )
         return
 
+    if args.command == "purge-payloads":
+        path = args.db if args.db else default_db_path()
+        if not args.yes:
+            confirm = input(
+                f"Delete all content messages and redact tool call payloads in {path}? "
+                "Type 'purge' to confirm: "
+            )
+            if confirm.strip().lower() != "purge":
+                print("Aborted.")
+                store.close()
+                return
+        messages, tool_rows = store.purge_payloads()
+        store.close()
+        print(
+            f"Purged {messages} content messages and redacted payloads in {tool_rows} tool calls from {path}."
+        )
+        return
+
+    if args.command == "vacuum":
+        path = args.db if args.db else default_db_path()
+        if not args.yes:
+            confirm = input(
+                f"Run VACUUM on {path}? This can take a while. Type 'vacuum' to confirm: "
+            )
+            if confirm.strip().lower() != "vacuum":
+                print("Aborted.")
+                store.close()
+                return
+        store.vacuum()
+        store.close()
+        print(f"Vacuum completed for {path}.")
+        return
+
     if args.command == "report":
         now = datetime.now(tz)
         start = None
@@ -1144,7 +1248,11 @@ def main() -> None:
             if args.to_date:
                 end = to_local(parse_datetime(args.to_date), tz)
 
-        _ingest_for_range(args, store, start, end, tz)
+        try:
+            ingest_mode = _resolve_ingest_mode(args, db_path)
+        except ValueError as exc:
+            parser.error(str(exc))
+        _ingest_for_range(args, store, start, end, tz, ingest_mode)
         pricing, currency_label = load_pricing_config(db_path)
         weekly_quota = _estimate_weekly_quota(store, now, pricing, tz)
         if weekly_quota is None:
@@ -1169,7 +1277,11 @@ def main() -> None:
         return
 
     if args.command == "export":
-        _ingest_for_range(args, store, None, None, tz)
+        try:
+            ingest_mode = _resolve_ingest_mode(args, db_path)
+        except ValueError as exc:
+            parser.error(str(exc))
+        _ingest_for_range(args, store, None, None, tz, ingest_mode)
         rows = [dict(row) for row in store.iter_events()]
         if args.format == "json":
             output = export_events_json(rows)
@@ -1180,7 +1292,11 @@ def main() -> None:
         return
 
     if args.command == "status":
-        _ingest_for_range(args, store, None, None, tz)
+        try:
+            ingest_mode = _resolve_ingest_mode(args, db_path)
+        except ValueError as exc:
+            parser.error(str(exc))
+        _ingest_for_range(args, store, None, None, tz, ingest_mode)
         row = store.latest_status()
         if not row:
             print("No usage data captured yet.")
@@ -1213,7 +1329,11 @@ def main() -> None:
             start, end = _parse_initial_watch_range(args, tz)
         except ValueError as exc:
             parser.error(str(exc))
-        _run_watch(args, store, tz, start, end)
+        try:
+            ingest_mode = _resolve_ingest_mode(args, db_path)
+        except ValueError as exc:
+            parser.error(str(exc))
+        _run_watch(args, store, tz, start, end, ingest_mode)
         store.close()
         return
 

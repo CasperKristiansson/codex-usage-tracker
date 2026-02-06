@@ -31,6 +31,23 @@ def is_valid_timezone(value: str) -> bool:
     return True
 
 
+def _coerce_bool(value: Optional[object]) -> Optional[bool]:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in ("true", "yes", "1", "on"):
+            return True
+        if lowered in ("false", "no", "0", "off"):
+            return False
+    if isinstance(value, int):
+        if value == 1:
+            return True
+        if value == 0:
+            return False
+    return None
+
+
 def resolve_timezone_name(
     db_path: Optional[Path] = None,
     override: Optional[str] = None,
@@ -48,6 +65,22 @@ def resolve_timezone_name(
         if trimmed and is_valid_timezone(trimmed):
             return trimmed
     return DEFAULT_TIMEZONE
+
+
+def resolve_capture_payloads(db_path: Optional[Path] = None) -> bool:
+    """
+    Whether to store raw message/tool-call payloads.
+
+    Default is False (privacy + smaller DB) unless explicitly enabled in config.json.
+    """
+    payload = _load_config(db_path)
+    candidate: Optional[object] = (
+        payload.get("capture_payloads")
+        if isinstance(payload, dict)
+        else None
+    )
+    coerced = _coerce_bool(candidate)
+    return bool(coerced) if coerced is not None else False
 
 
 def resolve_timezone(

@@ -10,7 +10,7 @@ from typing import Optional
 from zoneinfo import ZoneInfo
 
 from .cli import IngestStats, ingest_rollouts
-from .config import resolve_timezone
+from .config import resolve_capture_payloads, resolve_timezone
 from .platform import default_db_path, default_rollouts_dir
 from .report import parse_datetime, to_local
 from .store import UsageStore
@@ -46,6 +46,7 @@ def run_sync(
 ) -> int:
     store = UsageStore(db_path)
     latest_stats: Optional[IngestStats] = None
+    ingest_mode = "full" if resolve_capture_payloads(db_path) else "redact_payloads"
 
     def _callback(stats: IngestStats, _current: int, _total: int, _path: Optional[Path]) -> None:
         nonlocal latest_stats
@@ -61,6 +62,7 @@ def run_sync(
             end,
             tz,
             progress_callback=_callback,
+            ingest_mode=ingest_mode,
         )
         _write_progress(
             progress_path, _progress_payload(sync_id, "completed", latest_stats)

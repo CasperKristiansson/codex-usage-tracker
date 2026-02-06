@@ -151,13 +151,15 @@ The bundled CLI is named: **`codex-track`**
 
 | Command                         | Purpose                                                         | Key flags                                                                                                                                                                                               |
 | ------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `codex-track report`            | Generate summaries/breakdowns (auto-ingests rollouts)           | `--db`, `--rollouts`, `--last <Nd|Nh>`, `--today`, `--from <YYYY-MM-DD or ISO>`, `--to <YYYY-MM-DD or ISO>`, `--group day|week|month`, `--by model|directory|session`, `--format table|json|csv`, `--timezone <IANA>`, `--no-content/--redact` |
-| `codex-track export`            | Export raw events (auto-ingests rollouts)                       | `--db`, `--rollouts`, `--format json|csv`, `--out <path>`, `--no-content/--redact`                                                                                                                     |
-| `codex-track status`            | Print latest usage snapshot (auto-ingests rollouts)             | `--db`, `--rollouts`, `--no-content/--redact`                                                                                                                                                           |
+| `codex-track report`            | Generate summaries/breakdowns (auto-ingests rollouts)           | `--db`, `--rollouts`, `--last <Nd|Nh>`, `--today`, `--from <YYYY-MM-DD or ISO>`, `--to <YYYY-MM-DD or ISO>`, `--group day|week|month`, `--by model|directory|session`, `--format table|json|csv`, `--timezone <IANA>`, `--no-content/--redact`, `--no-payloads`, `--with-payloads` |
+| `codex-track export`            | Export raw events (auto-ingests rollouts)                       | `--db`, `--rollouts`, `--format json|csv`, `--out <path>`, `--no-content/--redact`, `--no-payloads`, `--with-payloads`                                                                                  |
+| `codex-track status`            | Print latest usage snapshot (auto-ingests rollouts)             | `--db`, `--rollouts`, `--no-content/--redact`, `--no-payloads`, `--with-payloads`                                                                                                                      |
 | `codex-track web`               | Launch local Next.js dashboard from `ui/`                       | `--db`, `--rollouts`, `--port`, `--no-open`                                                                                                                                                             |
 | `codex-track ui`                | Alias for `codex-track web`                                     | `--db`, `--rollouts`, `--port`, `--no-open`                                                                                                                                                             |
-| `codex-track watch`             | Watch rollouts and auto-ingest new files                        | `--db`, `--rollouts`, `--interval`, `--last <Nd|Nh>`, `--today`, `--from <YYYY-MM-DD or ISO>`, `--to <YYYY-MM-DD or ISO>`, `--timezone <IANA>`, `--no-content/--redact`, `--verbose`, `--strict` |
+| `codex-track watch`             | Watch rollouts and auto-ingest new files                        | `--db`, `--rollouts`, `--interval`, `--last <Nd|Nh>`, `--today`, `--from <YYYY-MM-DD or ISO>`, `--to <YYYY-MM-DD or ISO>`, `--timezone <IANA>`, `--no-content/--redact`, `--no-payloads`, `--with-payloads`, `--verbose`, `--strict` |
 | `codex-track purge-content`     | Remove stored content messages + tool calls                     | `--db`, `--yes`                                                                                                                                                                                         |
+| `codex-track purge-payloads`    | Remove stored content messages + redact tool payloads           | `--db`, `--yes`                                                                                                                                                                                         |
+| `codex-track vacuum`            | Reclaim DB space after deletes                                  | `--db`, `--yes`                                                                                                                                                                                         |
 | `codex-track ingest-cli`        | Parse Codex CLI logs for `/status` and final “Token usage” line | `--db`, `--log <path or ->`                                                                                                                                                                             |
 | `codex-track ingest-app-server` | Parse app-server JSON-RPC logs and write timings/metadata       | `--db`, `--log <path or ->`                                                                                                                                                                             |
 | `codex-track clear-db`          | Delete the local DB (prompts unless `--yes`)                    | `--db`, `--yes`                                                                                                                                                                                         |
@@ -183,8 +185,12 @@ SQLite tables include:
 
 If you want to avoid storing prompt/response content:
 
-* Use `--no-content` (or `--redact`) with `report`, `export`, or `status` to skip writing `content_messages` and `tool_calls`.
-* Run `codex-track purge-content` to remove already stored content from the DB.
+* **Default:** payload capture is disabled. The DB does not store `content_messages`, and `tool_calls` payload fields are stored as `NULL`.
+* Use `--with-payloads` to store full message and tool payloads.
+* Use `--no-content` (or `--redact`) to store neither `content_messages` nor `tool_calls`.
+* Run `codex-track purge-payloads` to remove already stored messages and redact stored tool payloads.
+* Run `codex-track purge-content` to remove already stored messages and tool calls entirely.
+* After purging, run `codex-track vacuum` to reclaim file size.
 
 ## Configuration
 
@@ -208,6 +214,13 @@ Reports and the UI use a configurable local timezone.
 
 * **Default:** `Europe/Stockholm`
 * **UI:** Settings → Timezone (persists to `config.json`)
+
+### Payload capture
+
+By default, the tracker does **not** store raw message text or tool call payloads in SQLite.
+
+* **UI:** Settings → Privacy → "Store full message text and tool call payloads in the DB"
+* **CLI override:** `--with-payloads` to store payloads, or `--no-content` to store no content/tool calls at all.
 * **CLI:** `codex-track report --timezone America/Los_Angeles` (one-off override)
 
 Note: stored local timestamps reflect the timezone in effect at ingestion time. If you change the timezone and want historical data to shift, re-ingest.
