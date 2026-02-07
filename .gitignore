@@ -12,4 +12,5 @@ ui/tests/fixtures/usage.sqlite
 ui/tests/fixtures/config.json
 .tmp/
 ui/test-results/
+ui/.playwright/
 ui/tests/fixtures/*.sqlite*

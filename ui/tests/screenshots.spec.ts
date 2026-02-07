@@ -29,7 +29,7 @@ test.describe("ui screenshots", () => {
   });
 
   for (const entry of pages) {
-    test(`capture ${entry.name}`, async ({ page }) => {
+    test(`capture ${entry.name}`, async ({ page }, testInfo) => {
       await page.goto(entry.path);
       await waitForUi(page);
       await page.waitForTimeout(500);
@@ -42,7 +42,7 @@ test.describe("ui screenshots", () => {
         }
       }
 
-      const baseDir = path.join("test-results", "screenshots");
+      const baseDir = path.join(testInfo.project.outputDir, "screenshots");
       await fs.promises.mkdir(baseDir, { recursive: true });
       const target = path.join(baseDir, `${entry.name}.png`);
       await page.screenshot({ path: target, fullPage: true });

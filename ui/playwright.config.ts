@@ -7,6 +7,8 @@ const fixtureConfig = path.resolve(__dirname, "tests", "fixtures", "config.json"
 const config: PlaywrightTestConfig = {
   testDir: "./tests",
   globalSetup: "./tests/global-setup.ts",
+  // Keep Playwright artifacts out of the repo (some older artifacts were accidentally committed).
+  outputDir: path.resolve(__dirname, ".playwright", "test-results"),
   timeout: 30_000,
   expect: {
     timeout: 10_000
