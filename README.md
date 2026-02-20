@@ -53,6 +53,7 @@ CODEX_USAGE_BIN_DIR=/path/to/bin \
 * Stores data locally in SQLite, with **incremental ingestion** (skips unchanged files based on mtime/size).
 * Generates **daily/weekly/monthly** summaries and breakdowns by **model**, **directory**, or **session**.
 * Exports raw events to **JSON** or **CSV**.
+* Creates compressed **rollout backups** from the web UI for a selected period.
 * Shows the latest usage snapshot.
 * Runs a local Next.js dashboard via a CLI command.
 
@@ -138,6 +139,16 @@ Run on a custom port and don’t open a browser:
 ```bash
 codex-track web --port 3001 --no-open
 ```
+
+### 4b) Create a rollout backup from the web UI
+
+Open `codex-track web`, go to **DB Insights**, and use **Session Rollout Backup**.
+
+* Uses the active global period (`from` / `to`) as an inclusive timestamp filter.
+* Matches rollout files by parsing JSONL event timestamps (not file mtime).
+* Includes full matched session folders (or matched top-level rollout files).
+* Exports a `tar.xz` archive (max-ratio compression).
+* This backup contains **raw rollout files only**, not the SQLite DB.
 
 ### 5) Watch rollouts and auto-ingest new files
 

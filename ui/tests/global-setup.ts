@@ -7,6 +7,7 @@ const fixtureDir = path.resolve(__dirname, "fixtures");
 const fixtureDb = path.join(fixtureDir, "usage.sqlite");
 const emptyDb = path.join(fixtureDir, "empty.sqlite");
 const syncDb = path.join(fixtureDir, "sync.sqlite");
+const fixtureRollouts = path.join(fixtureDir, "rollouts");
 const generator = path.join(fixtureDir, "generate_fixture_db.py");
 
 const ensureFixtureDb = () => {
@@ -87,4 +88,7 @@ export default async function globalSetup() {
   ensureFixtureDb();
   ensureEmptyDb();
   ensureSyncDb();
+  if (!fs.existsSync(fixtureRollouts)) {
+    throw new Error(`Rollout fixtures not found: ${fixtureRollouts}`);
+  }
 }

@@ -3,6 +3,7 @@ import path from "path";
 
 const fixtureDb = path.resolve(__dirname, "tests", "fixtures", "usage.sqlite");
 const fixtureConfig = path.resolve(__dirname, "tests", "fixtures", "config.json");
+const fixtureRollouts = path.resolve(__dirname, "tests", "fixtures", "rollouts");
 
 const config: PlaywrightTestConfig = {
   testDir: "./tests",
@@ -19,13 +20,14 @@ const config: PlaywrightTestConfig = {
   },
   webServer: {
     command:
-      `bash -lc "unset npm_config_prefix; export CODEX_USAGE_DB='${fixtureDb}' CODEX_USAGE_CONFIG='${fixtureConfig}' && node ./node_modules/next/dist/bin/next dev --hostname 127.0.0.1 --port 3001"`,
+      `bash -lc "unset npm_config_prefix; export CODEX_USAGE_DB='${fixtureDb}' CODEX_USAGE_CONFIG='${fixtureConfig}' CODEX_USAGE_ROLLOUTS='${fixtureRollouts}' && node ./node_modules/next/dist/bin/next dev --hostname 127.0.0.1 --port 3001"`,
     url: "http://127.0.0.1:3001",
     reuseExistingServer: !process.env.CI,
     cwd: __dirname,
     env: {
       ...process.env,
-      CODEX_USAGE_DB: fixtureDb
+      CODEX_USAGE_DB: fixtureDb,
+      CODEX_USAGE_ROLLOUTS: fixtureRollouts
     }
   },
   projects: [

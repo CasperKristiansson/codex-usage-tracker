@@ -59,6 +59,72 @@ const parseFilename = (header: string | null) => {
   return match ? match[1] : null;
 };
 
+const downloadBlob = (blob: Blob, filename: string) => {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+};
+
+type SaveFilePickerOptions = {
+  suggestedName?: string;
+  types?: Array<{
+    description?: string;
+    accept?: Record<string, string[]>;
+  }>;
+};
+
+type FilePickerHandle = {
+  createWritable: () => Promise<{
+    write: (chunk: Uint8Array) => Promise<void>;
+    close: () => Promise<void>;
+    abort: () => Promise<void>;
+  }>;
+};
+
+type PickerCapableWindow = Window & {
+  showSaveFilePicker?: (options?: SaveFilePickerOptions) => Promise<FilePickerHandle>;
+};
+
+const saveWithFilePicker = async (
+  response: Response,
+  filename: string
+): Promise<boolean> => {
+  const win = window as PickerCapableWindow;
+  if (!win.showSaveFilePicker || !response.body) return false;
+  const handle = await win.showSaveFilePicker({
+    suggestedName: filename,
+    types: [
+      {
+        description: "XZ Tar Archive",
+        accept: { "application/x-xz": [".xz"] }
+      }
+    ]
+  });
+  const writable = await handle.createWritable();
+  const reader = response.body.getReader();
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      if (value) {
+        await writable.write(value);
+      }
+    }
+    await writable.close();
+    return true;
+  } catch (error) {
+    await writable.abort();
+    throw error;
+  } finally {
+    reader.releaseLock();
+  }
+};
+
 export default function DbInsightsPage() {
   const { settings } = useSettings();
   const { filters } = useFilters();
@@ -69,6 +135,8 @@ export default function DbInsightsPage() {
   const [exportLimit, setExportLimit] = useState(String(DEFAULT_EXPORT_LIMIT));
   const [exporting, setExporting] = useState<null | "json" | "csv">(null);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [backuping, setBackuping] = useState(false);
+  const [backupError, setBackupError] = useState<string | null>(null);
 
   const tableSizes = insights.data?.table_sizes ?? EMPTY_TABLE_SIZES;
   const totalTableBytes = useMemo(
@@ -170,20 +238,63 @@ export default function DbInsightsPage() {
       const filename =
         parseFilename(header) ??
         `db-${exportDataset}-${new Date().toISOString().slice(0, 10)}.${format}`;
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
+      downloadBlob(blob, filename);
     } catch (error) {
       setExportError(
         error instanceof Error ? error.message : "Failed to export dataset."
       );
     } finally {
       setExporting(null);
+    }
+  };
+
+  const buildRolloutBackupUrl = () => {
+    const params = new URLSearchParams();
+    params.set("from", filters.from);
+    params.set("to", filters.to);
+    return `/api/db/backup/rollouts?${params.toString()}`;
+  };
+
+  const handleRolloutBackup = async () => {
+    if (backuping) return;
+    setBackupError(null);
+    setBackuping(true);
+    try {
+      const response = await fetch(buildRolloutBackupUrl());
+      if (!response.ok) {
+        const text = await response.text();
+        let message = `Backup failed (${response.status})`;
+        try {
+          const parsed = JSON.parse(text) as { error?: string };
+          if (parsed?.error) message = parsed.error;
+        } catch {
+          if (text) message = text;
+        }
+        throw new Error(message);
+      }
+
+      const filename =
+        parseFilename(response.headers.get("Content-Disposition")) ??
+        `codex-rollouts-backup-${new Date().toISOString().slice(0, 10)}.tar.xz`;
+
+      try {
+        const savedWithPicker = await saveWithFilePicker(response, filename);
+        if (savedWithPicker) return;
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") {
+          return;
+        }
+        throw error;
+      }
+
+      const blob = await response.blob();
+      downloadBlob(blob, filename);
+    } catch (error) {
+      setBackupError(
+        error instanceof Error ? error.message : "Failed to create rollout backup."
+      );
+    } finally {
+      setBackuping(false);
     }
   };
 
@@ -467,6 +578,42 @@ export default function DbInsightsPage() {
           {exportError ? (
             <div className="text-xs text-rose-400">{exportError}</div>
           ) : null}
+        </div>
+      </CardPanel>
+
+      <CardPanel
+        title="Session Rollout Backup"
+        subtitle="Export matched raw rollout sessions as tar.xz"
+        testId="db-rollout-backup"
+      >
+        <div className="space-y-3 text-xs">
+          <div className="rounded-lg border border-border/20 bg-muted/20 px-3 py-2">
+            <div className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">
+              Active period
+            </div>
+            <div className="mt-2 text-foreground">
+              {formatTimestamp(filters.from, settings.timezone)} →{" "}
+              {formatTimestamp(filters.to, settings.timezone)}
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleRolloutBackup}
+              disabled={backuping}
+            >
+              {backuping ? "Creating backup..." : "Create rollout backup"}
+            </Button>
+            <span className="text-xs text-muted-foreground">
+              Compression: tar.xz (max ratio)
+            </span>
+          </div>
+          <div className="text-xs text-muted-foreground">
+            Includes whole session folders when any rollout event timestamp is in range.
+            Saves via file picker when supported, otherwise browser download.
+          </div>
+          {backupError ? <div className="text-xs text-rose-400">{backupError}</div> : null}
         </div>
       </CardPanel>
     </div>

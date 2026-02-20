@@ -177,3 +177,39 @@ test("api sync start/progress returns a valid state", async ({ request }) => {
   expect(typeof progress.status).toBe("string");
   expect(["running", "completed", "failed", "unknown"]).toContain(progress.status);
 });
+
+test("api rollout backup returns archive for matching range", async ({ request }) => {
+  const params = new URLSearchParams({
+    from: "2025-01-01T00:00:00+00:00",
+    to: "2025-01-02T00:00:00+00:00"
+  });
+  const response = await request.get(`/api/db/backup/rollouts?${params.toString()}`);
+  expect(response.status()).toBe(200);
+  const disposition = response.headers()["content-disposition"] ?? "";
+  expect(disposition).toContain("attachment");
+  expect(disposition).toContain(".tar.xz");
+  const body = await response.body();
+  expect(body.length).toBeGreaterThan(0);
+});
+
+test("api rollout backup validates timestamps", async ({ request }) => {
+  const params = new URLSearchParams({
+    from: "not-a-date",
+    to: "2025-01-02T00:00:00+00:00"
+  });
+  const response = await request.get(`/api/db/backup/rollouts?${params.toString()}`);
+  expect(response.status()).toBe(400);
+  const payload = (await response.json()) as { error?: string };
+  expect(typeof payload.error).toBe("string");
+});
+
+test("api rollout backup returns 404 for empty range", async ({ request }) => {
+  const params = new URLSearchParams({
+    from: "2035-01-01T00:00:00+00:00",
+    to: "2035-01-02T00:00:00+00:00"
+  });
+  const response = await request.get(`/api/db/backup/rollouts?${params.toString()}`);
+  expect(response.status()).toBe(404);
+  const payload = (await response.json()) as { error?: string };
+  expect(typeof payload.error).toBe("string");
+});
