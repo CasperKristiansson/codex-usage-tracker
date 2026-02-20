@@ -59,6 +59,9 @@ const parseFilename = (header: string | null) => {
   return match ? match[1] : null;
 };
 
+const sanitizeFilenameStamp = (value: string) =>
+  value.replace(/[:]/g, "-").replace(/\.\d{3}Z$/, "Z");
+
 const downloadBlob = (blob: Blob, filename: string) => {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
@@ -90,13 +93,10 @@ type PickerCapableWindow = Window & {
   showSaveFilePicker?: (options?: SaveFilePickerOptions) => Promise<FilePickerHandle>;
 };
 
-const saveWithFilePicker = async (
-  response: Response,
-  filename: string
-): Promise<boolean> => {
+const getSaveFileHandle = async (filename: string): Promise<FilePickerHandle | null> => {
   const win = window as PickerCapableWindow;
-  if (!win.showSaveFilePicker || !response.body) return false;
-  const handle = await win.showSaveFilePicker({
+  if (!win.showSaveFilePicker) return null;
+  return win.showSaveFilePicker({
     suggestedName: filename,
     types: [
       {
@@ -105,6 +105,15 @@ const saveWithFilePicker = async (
       }
     ]
   });
+};
+
+const saveResponseWithFileHandle = async (
+  response: Response,
+  handle: FilePickerHandle
+): Promise<void> => {
+  if (!response.body) {
+    throw new Error("Backup response did not contain a readable body.");
+  }
   const writable = await handle.createWritable();
   const reader = response.body.getReader();
   try {
@@ -116,7 +125,6 @@ const saveWithFilePicker = async (
       }
     }
     await writable.close();
-    return true;
   } catch (error) {
     await writable.abort();
     throw error;
@@ -260,6 +268,19 @@ export default function DbInsightsPage() {
     setBackupError(null);
     setBackuping(true);
     try {
+      let pickerHandle: FilePickerHandle | null = null;
+      const defaultFrom = sanitizeFilenameStamp(new Date(filters.from).toISOString());
+      const defaultTo = sanitizeFilenameStamp(new Date(filters.to).toISOString());
+      const defaultFilename = `codex-rollouts-backup-${defaultFrom}-to-${defaultTo}.tar.xz`;
+      try {
+        pickerHandle = await getSaveFileHandle(defaultFilename);
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") {
+          return;
+        }
+        throw error;
+      }
+
       const response = await fetch(buildRolloutBackupUrl());
       if (!response.ok) {
         const text = await response.text();
@@ -277,14 +298,9 @@ export default function DbInsightsPage() {
         parseFilename(response.headers.get("Content-Disposition")) ??
         `codex-rollouts-backup-${new Date().toISOString().slice(0, 10)}.tar.xz`;
 
-      try {
-        const savedWithPicker = await saveWithFilePicker(response, filename);
-        if (savedWithPicker) return;
-      } catch (error) {
-        if (error instanceof DOMException && error.name === "AbortError") {
-          return;
-        }
-        throw error;
+      if (pickerHandle) {
+        await saveResponseWithFileHandle(response, pickerHandle);
+        return;
       }
 
       const blob = await response.blob();
