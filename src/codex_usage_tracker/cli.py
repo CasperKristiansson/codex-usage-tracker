@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+import socket
 import subprocess
 import sys
 import threading
@@ -135,6 +136,31 @@ def _open_browser(url: str, delay: float = 0.8) -> None:
         webbrowser.open(url)
 
     threading.Thread(target=_runner, daemon=True).start()
+
+
+def _is_port_available(port: int, host: str = "127.0.0.1") -> bool:
+    if port < 1 or port > 65535:
+        return False
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            sock.bind((host, port))
+        except OSError:
+            return False
+    return True
+
+
+def _resolve_web_port(requested_port: int, max_port: int = 65535) -> int:
+    if requested_port < 1 or requested_port > max_port:
+        raise ValueError(
+            f"Invalid port {requested_port}. Expected a value between 1 and {max_port}."
+        )
+    for port in range(requested_port, max_port + 1):
+        if _is_port_available(port):
+            return port
+    raise RuntimeError(
+        f"No available port found in range {requested_port}-{max_port}."
+    )
 
 
 def _resolve_ui_dist(repo_root: Path) -> Optional[Path]:
@@ -1343,7 +1369,16 @@ def main() -> None:
         if args.rollouts:
             os.environ["CODEX_USAGE_ROLLOUTS"] = str(args.rollouts)
         store.close()
-        port = args.port or 3000
+        requested_port = args.port or 3000
+        try:
+            port = _resolve_web_port(requested_port)
+        except ValueError as exc:
+            parser.error(str(exc))
+        if port != requested_port:
+            print(
+                f"Port {requested_port} is unavailable; starting dashboard on {port} instead.",
+                file=sys.stderr,
+            )
         if not args.no_open:
             _open_browser(f"http://localhost:{port}")
         repo_root = Path(__file__).resolve().parents[2]
