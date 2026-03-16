@@ -258,9 +258,15 @@ Reports estimate cost using built-in pricing **per 1M tokens**:
 | Model               | Input | Cached input | Output |
 | ------------------- | ----: | -----------: | -----: |
 | `gpt-5.2`           | 1.750 |        0.175 | 14.000 |
+| `gpt-5.4`           | 2.500 |        0.250 | 15.000 |
+| `gpt-5.2-pro`       | 21.00 |            - | 168.00 |
+| `gpt-5.4-pro`       | 30.00 |            - | 180.00 |
 | `gpt-5.1-codex-max` |  1.25 |        0.125 |  10.00 |
 | `gpt-5.1-codex`     |  1.25 |        0.125 |  10.00 |
 | `gpt-5.2-codex`     |  1.75 |        0.175 |  14.00 |
+
+For models that don't publish discounted cached-input pricing (for example `*-pro`),
+cached tokens are estimated at the regular input rate.
 
 ### Pricing overrides
 

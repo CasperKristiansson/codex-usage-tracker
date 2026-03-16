@@ -55,12 +55,29 @@ def default_pricing() -> PricingConfig:
                 cached_input_rate=0.175,
                 output_rate=14.000,
             ),
+            "gpt-5.4": PricingModel(
+                input_rate=2.500,
+                cached_input_rate=0.250,
+                output_rate=15.000,
+            ),
+            # "Pro" models do not publish a discounted cached-input price.
+            # We treat cached tokens at the normal input rate for estimation.
+            "gpt-5.2-pro": PricingModel(
+                input_rate=21.000,
+                cached_input_rate=21.000,
+                output_rate=168.000,
+            ),
+            "gpt-5.4-pro": PricingModel(
+                input_rate=30.000,
+                cached_input_rate=30.000,
+                output_rate=180.000,
+            ),
             # Some rollups/events may report a major-only "gpt-5" model name.
-            # Treat as equivalent to gpt-5.2 unless overridden.
+            # Treat as equivalent to gpt-5.4 unless overridden.
             "gpt-5": PricingModel(
-                input_rate=1.750,
-                cached_input_rate=0.175,
-                output_rate=14.000,
+                input_rate=2.500,
+                cached_input_rate=0.250,
+                output_rate=15.000,
             ),
             "gpt-5.1-codex-max": PricingModel(
                 input_rate=1.25,
@@ -206,7 +223,8 @@ _MODEL_ALIASES: Dict[str, str] = {
     # Keep this small and explicit; overrides in config.json can always replace it.
     "gpt-5.3-codex": "gpt-5.2-codex",
     "gpt-5-codex": "gpt-5.2-codex",
-    "gpt-5": "gpt-5.2",
+    "gpt-5": "gpt-5.4",
+    "gpt-5-pro": "gpt-5.4-pro",
 }
 
 

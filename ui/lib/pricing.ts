@@ -26,12 +26,29 @@ export const DEFAULT_PRICING: PricingConfig = {
       cached_input_rate: 0.175,
       output_rate: 14.0
     },
+    "gpt-5.4": {
+      input_rate: 2.5,
+      cached_input_rate: 0.25,
+      output_rate: 15.0
+    },
+    // "Pro" models do not publish a discounted cached-input price.
+    // We treat cached tokens at the normal input rate for estimation.
+    "gpt-5.2-pro": {
+      input_rate: 21.0,
+      cached_input_rate: 21.0,
+      output_rate: 168.0
+    },
+    "gpt-5.4-pro": {
+      input_rate: 30.0,
+      cached_input_rate: 30.0,
+      output_rate: 180.0
+    },
     // Some rollups/events may report a major-only "gpt-5" model name.
-    // Treat as equivalent to gpt-5.2 unless overridden.
+    // Treat as equivalent to gpt-5.4 unless overridden.
     "gpt-5": {
-      input_rate: 1.75,
-      cached_input_rate: 0.175,
-      output_rate: 14.0
+      input_rate: 2.5,
+      cached_input_rate: 0.25,
+      output_rate: 15.0
     },
     "gpt-5.1-codex-max": {
       input_rate: 1.25,
@@ -67,7 +84,8 @@ export const DEFAULT_PRICING: PricingConfig = {
 const MODEL_ALIASES: Record<string, string> = {
   "gpt-5.3-codex": "gpt-5.2-codex",
   "gpt-5-codex": "gpt-5.2-codex",
-  "gpt-5": "gpt-5.2"
+  "gpt-5": "gpt-5.4",
+  "gpt-5-pro": "gpt-5.4-pro"
 };
 
 const resolvePricingModelName = (model: string, pricing: PricingConfig) => {
