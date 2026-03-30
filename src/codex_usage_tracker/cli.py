@@ -74,6 +74,24 @@ class CliLogStats:
 
 IngestMode = Literal["full", "redact_payloads", "none"]
 
+LEAN_ACTIVITY_EVENT_TYPES = {
+    "assistant_message",
+    "shell_command",
+    "tool_call",
+    "tool_name",
+    "user_message",
+}
+LEAN_DROPPED_TOOL_TYPES = {
+    "custom_tool_call_output",
+    "function_call_output",
+}
+
+
+def _should_store_activity_event(event_type: str, ingest_mode: IngestMode) -> bool:
+    if ingest_mode == "full":
+        return True
+    return event_type not in LEAN_ACTIVITY_EVENT_TYPES
+
 
 def _resolve_ingest_mode(args: argparse.Namespace, db_path: Path) -> IngestMode:
     """
@@ -230,6 +248,7 @@ def ingest_rollouts(
     include_messages = ingest_mode == "full"
     include_tool_calls = ingest_mode in ("full", "redact_payloads")
     include_tool_payloads = ingest_mode == "full"
+    lean_storage = ingest_mode != "full"
 
     def _update_timing(current: int, file_path: Optional[Path]) -> None:
         now_ts = time.time()
@@ -463,6 +482,10 @@ def ingest_rollouts(
                             for activity in parsed.activity_events:
                                 if activity.count <= 0:
                                     continue
+                                if not _should_store_activity_event(
+                                    activity.event_type, ingest_mode
+                                ):
+                                    continue
                                 pending_activity.append(
                                     ActivityEvent(
                                         captured_at=activity.captured_at_local.isoformat(),
@@ -493,17 +516,19 @@ def ingest_rollouts(
 
                         if parsed.tool_calls and include_tool_calls:
                             for tool_call in parsed.tool_calls:
+                                if lean_storage and tool_call.tool_type in LEAN_DROPPED_TOOL_TYPES:
+                                    continue
                                 pending_tool_calls.append(
                                     ToolCallEvent(
                                         captured_at=tool_call.captured_at_local.isoformat(),
                                         captured_at_utc=tool_call.captured_at_utc.isoformat(),
                                         tool_type=tool_call.tool_type,
                                         tool_name=tool_call.tool_name,
-                                        call_id=tool_call.call_id,
+                                        call_id=None if lean_storage else tool_call.call_id,
                                         status=tool_call.status,
-                                        input_text=tool_call.input_text,
-                                        output_text=tool_call.output_text,
-                                        command=tool_call.command,
+                                        input_text=None if lean_storage else tool_call.input_text,
+                                        output_text=None if lean_storage else tool_call.output_text,
+                                        command=None if lean_storage else tool_call.command,
                                         session_id=context.session_id,
                                         turn_index=turn_index,
                                         source=str(file_path),
@@ -961,7 +986,12 @@ def build_parser() -> argparse.ArgumentParser:
     report_parser.add_argument("--db", type=Path, default=None)
     report_parser.add_argument("--rollouts", type=Path, default=None)
     add_ingest_args(report_parser)
-    report_parser.add_argument("--last", type=str, default=None)
+    report_parser.add_argument(
+        "--last",
+        type=str,
+        default=None,
+        help="Relative range like 7d, 12h, 1m (month), 30min, or total",
+    )
     report_parser.add_argument(
         "--today",
         action="store_true",
@@ -1050,7 +1080,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Polling interval in seconds",
     )
     add_ingest_args(watch_parser)
-    watch_parser.add_argument("--last", type=str, default=None)
+    watch_parser.add_argument(
+        "--last",
+        type=str,
+        default=None,
+        help="Relative range like 7d, 12h, 1m (month), 30min, or total",
+    )
     watch_parser.add_argument(
         "--today",
         action="store_true",
@@ -1126,9 +1161,7 @@ def _parse_initial_watch_range(
         start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         end = now
     elif args.last:
-        delta = parse_last(args.last)
-        start = now - delta
-        end = now
+        start, end = parse_last(args.last, now)
     else:
         if args.from_date:
             start = to_local(parse_datetime(args.from_date), tz)
@@ -1265,9 +1298,7 @@ def main() -> None:
             start = now.replace(hour=0, minute=0, second=0, microsecond=0)
             end = now
         elif args.last:
-            delta = parse_last(args.last)
-            start = now - delta
-            end = now
+            start, end = parse_last(args.last, now)
         else:
             if args.from_date:
                 start = to_local(parse_datetime(args.from_date), tz)

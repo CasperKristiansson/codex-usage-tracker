@@ -48,6 +48,7 @@ type ToolCallSample = {
 };
 
 type MessageSample = {
+  storage_disabled?: boolean;
   rows: Array<{
     captured_at_utc: string;
     role: string | null;
@@ -419,8 +420,9 @@ export const SessionDetailDrawer = ({
       ) : (
         <div className="space-y-5">
           <div className="rounded-lg border border-border/20 bg-muted/20 px-3 py-3 text-xs text-muted-foreground">
-            Debug endpoints are capped at 200 rows and text is truncated to 800
-            characters. Use a session ID or narrow time range for safe sampling.
+            Debug endpoints are capped at 200 rows. In the default privacy mode,
+            tool calls are metadata-only and message text is not stored unless
+            payload capture is enabled.
           </div>
 
           <div>
@@ -554,6 +556,10 @@ export const SessionDetailDrawer = ({
                     </pre>
                   </div>
                 ))}
+              </div>
+            ) : turnQuery && messageSamples.data?.storage_disabled ? (
+              <div className="mt-3">
+                <EmptyState description="Message storage is disabled in the current privacy profile." />
               </div>
             ) : turnQuery ? (
               <div className="mt-3">

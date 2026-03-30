@@ -136,6 +136,29 @@ class CliIntegrationTests(unittest.TestCase):
             header_index = output.index(header_line)
             self.assertGreaterEqual(len(output), header_index + 3)
 
+    def test_cli_report_includes_total_footer_row(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            rollouts_dir = root / "rollouts"
+            _write_rollout_for_today(rollouts_dir)
+            db_path = root / "usage.sqlite"
+
+            result = _run_cli(
+                [
+                    "report",
+                    "--db",
+                    str(db_path),
+                    "--rollouts",
+                    str(rollouts_dir),
+                    "--last",
+                    "total",
+                ]
+            )
+            total_line = result.stdout.strip().splitlines()[-1]
+
+            self.assertTrue(total_line.startswith("Total"))
+            self.assertIn("160", total_line)
+
     def test_cli_export_csv_writes_event_rows(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

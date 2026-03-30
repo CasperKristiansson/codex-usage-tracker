@@ -5,8 +5,30 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Optional
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 INGEST_VERSION = 5
+STORAGE_PROFILE_VERSION = 1
+
+LEAN_ACTIVITY_EVENT_TYPES = (
+    "assistant_message",
+    "shell_command",
+    "tool_call",
+    "tool_name",
+    "user_message",
+)
+LEAN_TOOL_OUTPUT_TYPES = (
+    "custom_tool_call_output",
+    "function_call_output",
+)
+REDUNDANT_ACTIVITY_INDEXES = (
+    "activity_event_type_idx",
+    "activity_session_idx",
+    "activity_captured_at_idx",
+    "activity_captured_at_utc_idx",
+)
+REDUNDANT_TOOL_CALL_INDEXES = (
+    "tool_calls_captured_at_utc_idx",
+)
 
 
 @dataclass
@@ -170,6 +192,7 @@ class UsageStore:
         self.conn.execute("PRAGMA synchronous=NORMAL")
         self.conn.execute("PRAGMA temp_store=MEMORY")
         self._init_schema()
+        self._ensure_storage_profile()
 
     def close(self) -> None:
         self.conn.close()
@@ -485,30 +508,6 @@ class UsageStore:
         )
         cur.execute(
             """
-            CREATE INDEX IF NOT EXISTS activity_event_type_idx
-            ON activity_events(event_type)
-            """
-        )
-        cur.execute(
-            """
-            CREATE INDEX IF NOT EXISTS activity_session_idx
-            ON activity_events(session_id)
-            """
-        )
-        cur.execute(
-            """
-            CREATE INDEX IF NOT EXISTS activity_captured_at_idx
-            ON activity_events(captured_at)
-            """
-        )
-        cur.execute(
-            """
-            CREATE INDEX IF NOT EXISTS activity_captured_at_utc_idx
-            ON activity_events(captured_at_utc)
-            """
-        )
-        cur.execute(
-            """
             CREATE INDEX IF NOT EXISTS app_turns_thread_idx
             ON app_turns(thread_id)
             """
@@ -565,12 +564,6 @@ class UsageStore:
             """
             CREATE INDEX IF NOT EXISTS tool_calls_captured_at_idx
             ON tool_calls(captured_at)
-            """
-        )
-        cur.execute(
-            """
-            CREATE INDEX IF NOT EXISTS tool_calls_captured_at_utc_idx
-            ON tool_calls(captured_at_utc)
             """
         )
         cur.execute(
@@ -637,6 +630,89 @@ class UsageStore:
             """,
             ("schema_version", str(SCHEMA_VERSION)),
         )
+
+    def _get_meta(self, key: str) -> Optional[str]:
+        row = self.conn.execute(
+            "SELECT value FROM meta WHERE key = ?",
+            (key,),
+        ).fetchone()
+        return row["value"] if row else None
+
+    def _drop_index_if_exists(self, name: str) -> bool:
+        row = self.conn.execute(
+            """
+            SELECT name
+            FROM sqlite_master
+            WHERE type = 'index' AND name = ?
+            """,
+            (name,),
+        ).fetchone()
+        if row is None:
+            return False
+        self.conn.execute(f"DROP INDEX IF EXISTS {name}")
+        return True
+
+    def _ensure_storage_profile(self) -> None:
+        current = self._get_meta("storage_profile_version")
+        if current == str(STORAGE_PROFILE_VERSION):
+            return
+
+        changed = False
+        for index_name in (*REDUNDANT_ACTIVITY_INDEXES, *REDUNDANT_TOOL_CALL_INDEXES):
+            changed = self._drop_index_if_exists(index_name) or changed
+
+        messages_deleted = self.conn.execute(
+            "DELETE FROM content_messages"
+        ).rowcount
+        tool_outputs_deleted = self.conn.execute(
+            f"""
+            DELETE FROM tool_calls
+            WHERE tool_type IN ({",".join("?" for _ in LEAN_TOOL_OUTPUT_TYPES)})
+            """,
+            LEAN_TOOL_OUTPUT_TYPES,
+        ).rowcount
+        tool_rows_redacted = self.conn.execute(
+            """
+            UPDATE tool_calls
+            SET call_id = NULL,
+                input_text = NULL,
+                output_text = NULL,
+                command = NULL
+            WHERE call_id IS NOT NULL
+               OR input_text IS NOT NULL
+               OR output_text IS NOT NULL
+               OR command IS NOT NULL
+            """
+        ).rowcount
+        activity_deleted = self.conn.execute(
+            f"""
+            DELETE FROM activity_events
+            WHERE event_type IN ({",".join("?" for _ in LEAN_ACTIVITY_EVENT_TYPES)})
+            """,
+            LEAN_ACTIVITY_EVENT_TYPES,
+        ).rowcount
+
+        changed = any(
+            count > 0
+            for count in (
+                messages_deleted,
+                tool_outputs_deleted,
+                tool_rows_redacted,
+                activity_deleted,
+            )
+        ) or changed
+
+        self.conn.execute(
+            """
+            INSERT INTO meta (key, value)
+            VALUES (?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+            """,
+            ("storage_profile_version", str(STORAGE_PROFILE_VERSION)),
+        )
+        self.conn.commit()
+        if changed:
+            self.vacuum()
 
     def set_meta(self, key: str, value: str) -> None:
         self.conn.execute(

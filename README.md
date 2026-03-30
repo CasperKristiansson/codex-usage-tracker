@@ -108,6 +108,18 @@ Summarize the last 7 days, grouped by day, broken down by model:
 codex-track report --last 7d --group day --by model
 ```
 
+Summarize the last month:
+
+```bash
+codex-track report --last 1m
+```
+
+Show all tracked usage:
+
+```bash
+codex-track report --last total
+```
+
 Output as JSON instead of a table:
 
 ```bash
@@ -162,12 +174,12 @@ The bundled CLI is named: **`codex-track`**
 
 | Command                         | Purpose                                                         | Key flags                                                                                                                                                                                               |
 | ------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `codex-track report`            | Generate summaries/breakdowns (auto-ingests rollouts)           | `--db`, `--rollouts`, `--last <Nd|Nh>`, `--today`, `--from <YYYY-MM-DD or ISO>`, `--to <YYYY-MM-DD or ISO>`, `--group day|week|month`, `--by model|directory|session`, `--format table|json|csv`, `--timezone <IANA>`, `--no-content/--redact`, `--no-payloads`, `--with-payloads` |
+| `codex-track report`            | Generate summaries/breakdowns (auto-ingests rollouts)           | `--db`, `--rollouts`, `--last <Nd|Nh|Nm|Nmin|total>`, `--today`, `--from <YYYY-MM-DD or ISO>`, `--to <YYYY-MM-DD or ISO>`, `--group day|week|month`, `--by model|directory|session`, `--format table|json|csv`, `--timezone <IANA>`, `--no-content/--redact`, `--no-payloads`, `--with-payloads` |
 | `codex-track export`            | Export raw events (auto-ingests rollouts)                       | `--db`, `--rollouts`, `--format json|csv`, `--out <path>`, `--no-content/--redact`, `--no-payloads`, `--with-payloads`                                                                                  |
 | `codex-track status`            | Print latest usage snapshot (auto-ingests rollouts)             | `--db`, `--rollouts`, `--no-content/--redact`, `--no-payloads`, `--with-payloads`                                                                                                                      |
 | `codex-track web`               | Launch local Next.js dashboard from `ui/`                       | `--db`, `--rollouts`, `--port`, `--no-open`                                                                                                                                                             |
 | `codex-track ui`                | Alias for `codex-track web`                                     | `--db`, `--rollouts`, `--port`, `--no-open`                                                                                                                                                             |
-| `codex-track watch`             | Watch rollouts and auto-ingest new files                        | `--db`, `--rollouts`, `--interval`, `--last <Nd|Nh>`, `--today`, `--from <YYYY-MM-DD or ISO>`, `--to <YYYY-MM-DD or ISO>`, `--timezone <IANA>`, `--no-content/--redact`, `--no-payloads`, `--with-payloads`, `--verbose`, `--strict` |
+| `codex-track watch`             | Watch rollouts and auto-ingest new files                        | `--db`, `--rollouts`, `--interval`, `--last <Nd|Nh|Nm|Nmin|total>`, `--today`, `--from <YYYY-MM-DD or ISO>`, `--to <YYYY-MM-DD or ISO>`, `--timezone <IANA>`, `--no-content/--redact`, `--no-payloads`, `--with-payloads`, `--verbose`, `--strict` |
 | `codex-track purge-content`     | Remove stored content messages + tool calls                     | `--db`, `--yes`                                                                                                                                                                                         |
 | `codex-track purge-payloads`    | Remove stored content messages + redact tool payloads           | `--db`, `--yes`                                                                                                                                                                                         |
 | `codex-track vacuum`            | Reclaim DB space after deletes                                  | `--db`, `--yes`                                                                                                                                                                                         |

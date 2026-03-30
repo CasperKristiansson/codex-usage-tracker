@@ -10,6 +10,9 @@ from typing import Optional
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC_PATH = str(ROOT / "src")
+sys.path.insert(0, SRC_PATH)
+
+from codex_usage_tracker.store import ActivityEvent, MessageEvent, ToolCallEvent, UsageStore
 
 
 def _run_export(
@@ -149,6 +152,26 @@ def _write_rollout_file(root: Path) -> Path:
                 "action": {"type": "exec", "command": ["git", "status"]},
             },
         },
+        {
+            "timestamp": "2025-01-01T10:00:06.000Z",
+            "type": "response_item",
+            "payload": {
+                "type": "function_call",
+                "status": "completed",
+                "call_id": "call-2",
+                "name": "exec_command",
+                "arguments": {"cmd": "date"},
+            },
+        },
+        {
+            "timestamp": "2025-01-01T10:00:07.000Z",
+            "type": "response_item",
+            "payload": {
+                "type": "function_call_output",
+                "call_id": "call-2",
+                "output": {"stdout": "ok"},
+            },
+        },
     ]
     rollout_path.write_text("\n".join(json.dumps(line) for line in lines))
     os.utime(rollout_path, None)
@@ -198,13 +221,19 @@ class RolloutIngestTests(unittest.TestCase):
                 }
                 self.assertIn("user_message", activity_types)
                 self.assertIn("tool_call", activity_types)
+                self.assertIn("tool_name", activity_types)
 
-                tool_row = conn.execute(
-                "SELECT tool_type, command FROM tool_calls"
-                ).fetchone()
-                self.assertIsNotNone(tool_row)
-                self.assertEqual(tool_row[0], "local_shell")
-                self.assertIn("git", tool_row[1] or "")
+                tool_rows = conn.execute(
+                    "SELECT tool_type, tool_name, command, input_text, output_text FROM tool_calls ORDER BY captured_at_utc"
+                ).fetchall()
+                self.assertEqual(len(tool_rows), 3)
+                self.assertEqual(tool_rows[0][0], "local_shell")
+                self.assertIn("git", tool_rows[0][2] or "")
+                self.assertEqual(tool_rows[1][0], "function_call")
+                self.assertEqual(tool_rows[1][1], "exec_command")
+                self.assertIsNotNone(tool_rows[1][3])
+                self.assertEqual(tool_rows[2][0], "function_call_output")
+                self.assertIsNotNone(tool_rows[2][4])
 
                 message_row = conn.execute(
                 "SELECT role, message_type, message FROM content_messages"
@@ -230,24 +259,33 @@ class RolloutIngestTests(unittest.TestCase):
                 messages = conn.execute(
                     "SELECT COUNT(*) FROM content_messages"
                 ).fetchone()[0]
-                self.assertGreater(tool_calls, 0)
+                self.assertEqual(tool_calls, 2)
                 self.assertEqual(messages, 0)
 
-                tool_row = conn.execute(
-                    "SELECT tool_type, command, input_text, output_text FROM tool_calls"
-                ).fetchone()
-                self.assertIsNotNone(tool_row)
-                self.assertEqual(tool_row[0], "local_shell")
-                self.assertIn("git", tool_row[1] or "")
-                self.assertIsNone(tool_row[2])
-                self.assertIsNone(tool_row[3])
+                tool_rows = conn.execute(
+                    "SELECT tool_type, tool_name, call_id, command, input_text, output_text FROM tool_calls ORDER BY captured_at_utc"
+                ).fetchall()
+                self.assertEqual(tool_rows[0][0], "local_shell")
+                self.assertIsNone(tool_rows[0][2])
+                self.assertIsNone(tool_rows[0][3])
+                self.assertIsNone(tool_rows[0][4])
+                self.assertIsNone(tool_rows[0][5])
+                self.assertEqual(tool_rows[1][0], "function_call")
+                self.assertEqual(tool_rows[1][1], "exec_command")
+                self.assertIsNone(tool_rows[1][2])
+                self.assertIsNone(tool_rows[1][3])
+                self.assertIsNone(tool_rows[1][4])
+                self.assertIsNone(tool_rows[1][5])
 
                 events = conn.execute("SELECT COUNT(*) FROM events").fetchone()[0]
-                activity = conn.execute(
-                    "SELECT COUNT(*) FROM activity_events"
-                ).fetchone()[0]
+                activity_types = {
+                    row[0]
+                    for row in conn.execute(
+                        "SELECT DISTINCT event_type FROM activity_events"
+                    ).fetchall()
+                }
                 self.assertGreater(events, 0)
-                self.assertGreater(activity, 0)
+                self.assertEqual(activity_types, {"user_image", "user_local_image"})
             finally:
                 conn.close()
 
@@ -269,13 +307,146 @@ class RolloutIngestTests(unittest.TestCase):
                 self.assertEqual(messages, 0)
 
                 events = conn.execute("SELECT COUNT(*) FROM events").fetchone()[0]
-                activity = conn.execute(
-                    "SELECT COUNT(*) FROM activity_events"
-                ).fetchone()[0]
+                activity_types = {
+                    row[0]
+                    for row in conn.execute(
+                        "SELECT DISTINCT event_type FROM activity_events"
+                    ).fetchall()
+                }
                 self.assertGreater(events, 0)
-                self.assertGreater(activity, 0)
+                self.assertEqual(activity_types, {"user_image", "user_local_image"})
             finally:
                 conn.close()
+
+    def test_storage_profile_migration_cleans_existing_rows_and_vacuums(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "usage.sqlite"
+            store = UsageStore(db_path)
+            message_rows = []
+            tool_rows = []
+            activity_rows = []
+            for idx in range(1500):
+                captured = f"2025-01-01T10:{idx % 60:02d}:00+00:00"
+                message_rows.append(
+                    MessageEvent(
+                        captured_at=captured,
+                        captured_at_utc=captured,
+                        role="user",
+                        message_type="event_msg",
+                        message="x" * 200,
+                        session_id="session-1",
+                        turn_index=1,
+                        source="fixture",
+                    )
+                )
+                tool_rows.append(
+                    ToolCallEvent(
+                        captured_at=captured,
+                        captured_at_utc=captured,
+                        tool_type="function_call",
+                        tool_name="exec_command",
+                        call_id=f"call-{idx}",
+                        status="completed",
+                        input_text='{"cmd":"date"}',
+                        output_text=None,
+                        command="date",
+                        session_id="session-1",
+                        turn_index=1,
+                        source="fixture",
+                    )
+                )
+                tool_rows.append(
+                    ToolCallEvent(
+                        captured_at=captured,
+                        captured_at_utc=captured,
+                        tool_type="function_call_output",
+                        tool_name=None,
+                        call_id=f"call-{idx}",
+                        status=None,
+                        input_text=None,
+                        output_text='{"stdout":"ok"}',
+                        command=None,
+                        session_id="session-1",
+                        turn_index=1,
+                        source="fixture",
+                    )
+                )
+                activity_rows.append(
+                    ActivityEvent(
+                        captured_at=captured,
+                        captured_at_utc=captured,
+                        event_type="tool_call",
+                        event_name="function",
+                        count=1,
+                        session_id="session-1",
+                        turn_index=1,
+                        source="fixture",
+                    )
+                )
+                activity_rows.append(
+                    ActivityEvent(
+                        captured_at=captured,
+                        captured_at_utc=captured,
+                        event_type="user_image",
+                        event_name="event_msg",
+                        count=1,
+                        session_id="session-1",
+                        turn_index=1,
+                        source="fixture",
+                    )
+                )
+
+            store.insert_messages_bulk(message_rows)
+            store.insert_tool_calls_bulk(tool_rows)
+            store.insert_activity_events_bulk(activity_rows)
+            store.set_meta("storage_profile_version", "0")
+            store.close()
+
+            with sqlite3.connect(db_path) as conn:
+                conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+
+            before_size = db_path.stat().st_size
+
+            reopened = UsageStore(db_path)
+            reopened.close()
+
+            with sqlite3.connect(db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                self.assertEqual(
+                    conn.execute("SELECT COUNT(*) FROM content_messages").fetchone()[0], 0
+                )
+                tool_counts = [
+                    tuple(row)
+                    for row in conn.execute(
+                        "SELECT tool_type, COUNT(*) FROM tool_calls GROUP BY tool_type"
+                    ).fetchall()
+                ]
+                self.assertEqual(tool_counts, [("function_call", 1500)])
+                verbose_fields = conn.execute(
+                    """
+                    SELECT COUNT(*) FROM tool_calls
+                    WHERE call_id IS NOT NULL
+                       OR input_text IS NOT NULL
+                       OR output_text IS NOT NULL
+                       OR command IS NOT NULL
+                    """
+                ).fetchone()[0]
+                self.assertEqual(verbose_fields, 0)
+                activity_counts = [
+                    tuple(row)
+                    for row in conn.execute(
+                        "SELECT event_type, COUNT(*) FROM activity_events GROUP BY event_type"
+                    ).fetchall()
+                ]
+                self.assertEqual(activity_counts, [("user_image", 1500)])
+                storage_version = conn.execute(
+                    "SELECT value FROM meta WHERE key = 'storage_profile_version'"
+                ).fetchone()[0]
+                self.assertEqual(storage_version, "1")
+
+            after_size = db_path.stat().st_size
+            self.assertLess(after_size, before_size)
 
 
 if __name__ == "__main__":

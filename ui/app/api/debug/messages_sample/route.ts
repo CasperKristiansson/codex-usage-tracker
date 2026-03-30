@@ -3,6 +3,7 @@ import { NextRequest } from "next/server";
 import { DEBUG_ROW_LIMIT, DEBUG_TEXT_LIMIT } from "@/lib/server/constants";
 import { parseFilters } from "@/lib/server/filters";
 import { getDb } from "@/lib/server/db";
+import { loadPrivacySettings } from "@/lib/server/privacy";
 import { buildWhere } from "@/lib/server/query";
 import { errorResponse, jsonResponse } from "@/lib/server/response";
 
@@ -24,6 +25,7 @@ export const GET = (request: NextRequest) => {
       return errorResponse("turn_index must be a number", 400);
     }
 
+    const privacy = loadPrivacySettings(request.nextUrl.searchParams);
     const db = getDb(request.nextUrl.searchParams);
     const base = buildWhere(filters, {
       timeColumn: "captured_at",
@@ -45,7 +47,10 @@ export const GET = (request: NextRequest) => {
       )
       .all(params);
 
-    return jsonResponse({ rows });
+    return jsonResponse({
+      rows,
+      storage_disabled: !privacy.capture_payloads
+    });
   } catch (error) {
     return errorResponse(
       error instanceof Error ? error.message : "Failed to load messages",

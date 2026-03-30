@@ -2,6 +2,7 @@ import csv
 import io
 import json
 import re
+from calendar import monthrange
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -287,15 +288,42 @@ def parse_datetime(value: str) -> datetime:
     return datetime.fromisoformat(value + "T00:00:00")
 
 
-def parse_last(value: str) -> timedelta:
+def _subtract_months(dt: datetime, months: int) -> datetime:
+    total_months = (dt.year * 12) + (dt.month - 1) - months
+    year = total_months // 12
+    month = (total_months % 12) + 1
+    day = min(dt.day, monthrange(year, month)[1])
+    return dt.replace(year=year, month=month, day=day)
+
+
+def parse_last(
+    value: str, now: Optional[datetime] = None
+) -> Tuple[Optional[datetime], Optional[datetime]]:
     value = value.strip().lower()
-    if value.endswith("d"):
-        return timedelta(days=int(value[:-1]))
-    if value.endswith("h"):
-        return timedelta(hours=int(value[:-1]))
-    if value.endswith("m"):
-        return timedelta(minutes=int(value[:-1]))
-    raise ValueError("Invalid --last value, expected Nd/Nh/Nm")
+    anchor = now or datetime.now(DEFAULT_TZ)
+
+    if value == "total":
+        return None, None
+
+    match = re.fullmatch(r"(\d+)([a-z]+)", value)
+    if not match:
+        raise ValueError(
+            "Invalid --last value, expected total or a range like 7d, 12h, 1m, or 30min"
+        )
+
+    amount = int(match.group(1))
+    unit = match.group(2)
+    if unit in {"d", "day", "days"}:
+        return anchor - timedelta(days=amount), anchor
+    if unit in {"h", "hour", "hours"}:
+        return anchor - timedelta(hours=amount), anchor
+    if unit in {"min", "mins", "minute", "minutes"}:
+        return anchor - timedelta(minutes=amount), anchor
+    if unit in {"m", "mo", "mon", "month", "months"}:
+        return _subtract_months(anchor, amount), anchor
+    raise ValueError(
+        "Invalid --last value, expected total or a range like 7d, 12h, 1m, or 30min"
+    )
 
 
 def to_local(dt: datetime, tz: ZoneInfo = DEFAULT_TZ) -> datetime:
@@ -379,6 +407,27 @@ def _format_currency(value: float, currency_label: str) -> str:
     return f"{label} {formatted}"
 
 
+def summarize_rows(rows: Iterable[ReportRow]) -> ReportRow:
+    total = ReportRow(
+        period="Total",
+        group="",
+        total_tokens=0,
+        input_tokens=0,
+        cached_input_tokens=0,
+        output_tokens=0,
+        reasoning_output_tokens=0,
+        estimated_cost=0.0,
+    )
+    for row in rows:
+        total.total_tokens += row.total_tokens
+        total.input_tokens += row.input_tokens
+        total.cached_input_tokens += row.cached_input_tokens
+        total.output_tokens += row.output_tokens
+        total.reasoning_output_tokens += row.reasoning_output_tokens
+        total.estimated_cost += row.estimated_cost
+    return total
+
+
 def render_table(
     rows: List[ReportRow],
     include_group: bool,
@@ -408,6 +457,20 @@ def render_table(
     for values in data_rows:
         for idx, value in enumerate(values):
             widths[idx] = max(widths[idx], len(value))
+    total_row = summarize_rows(rows)
+    total_values = [total_row.period]
+    if include_group:
+        total_values.append(total_row.group)
+    total_values += [
+        f"{total_row.total_tokens:,}",
+        f"{total_row.input_tokens:,}",
+        f"{total_row.cached_input_tokens:,}",
+        f"{total_row.output_tokens:,}",
+        f"{total_row.reasoning_output_tokens:,}",
+        _format_currency(total_row.estimated_cost, currency_label),
+    ]
+    for idx, value in enumerate(total_values):
+        widths[idx] = max(widths[idx], len(value))
 
     def fmt_row(values: List[str]) -> str:
         parts = [value.ljust(widths[idx]) for idx, value in enumerate(values)]
@@ -415,6 +478,9 @@ def render_table(
 
     lines = [fmt_row(headers), fmt_row(["-" * w for w in widths])]
     lines.extend(fmt_row(values) for values in data_rows)
+    if data_rows:
+        lines.append(fmt_row(["-" * w for w in widths]))
+    lines.append(fmt_row(total_values))
     return "\n".join(lines)
 
 

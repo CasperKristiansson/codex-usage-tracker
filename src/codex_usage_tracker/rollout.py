@@ -620,6 +620,20 @@ def parse_rollout_line(
                     event_name="compaction",
                 )
             )
+            if include_tool_calls:
+                tool_calls.append(
+                    ParsedToolCall(
+                        captured_at_local=captured_at_local,
+                        captured_at_utc=captured_at_utc,
+                        tool_type="compaction",
+                        tool_name=_stringify(response_type),
+                        call_id=_stringify(payload.get("call_id")),
+                        status=_stringify(payload.get("status")),
+                        input_text=None,
+                        output_text=None,
+                        command=None,
+                    )
+                )
 
         if activity_events or messages or tool_calls:
             return (
