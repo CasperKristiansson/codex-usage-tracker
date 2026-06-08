@@ -28,7 +28,7 @@ export const GET = (request: NextRequest) => {
     const privacy = loadPrivacySettings(request.nextUrl.searchParams);
     const db = getDb(request.nextUrl.searchParams);
     const base = buildWhere(filters, {
-      timeColumn: "captured_at",
+      timeColumn: "captured_at_utc",
       sourceColumn: "source"
     });
 
@@ -38,9 +38,9 @@ export const GET = (request: NextRequest) => {
     const rows = db
       .prepare(
         `SELECT captured_at_utc, role, message_type,
-          substr(message, 1, ${DEBUG_TEXT_LIMIT}) as message,
+          substr(content, 1, ${DEBUG_TEXT_LIMIT}) as message,
           session_id, turn_index
-        FROM content_messages
+        FROM messages
         ${whereSql}
         ORDER BY captured_at_utc ASC
         LIMIT ${DEBUG_ROW_LIMIT}`

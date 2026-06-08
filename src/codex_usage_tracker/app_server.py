@@ -108,20 +108,7 @@ def ingest_app_server_output(
         if not store.file_needs_ingest(
             str(log_path), stat_info.st_mtime_ns, stat_info.st_size
         ):
-            try:
-                content_hash = compute_file_hash(log_path)
-            except OSError:
-                stats.errors += 1
-                return stats
-            if store.file_needs_ingest_with_hash(
-                str(log_path), stat_info.st_mtime_ns, stat_info.st_size, content_hash
-            ):
-                pass
-            else:
-                store.update_file_hash(
-                    str(log_path), stat_info.st_mtime_ns, stat_info.st_size, content_hash
-                )
-                return stats
+            return stats
         store.delete_app_server_events_for_source(str(log_path))
 
     turn_starts: Dict[Tuple[Optional[str], Optional[str]], datetime] = {}

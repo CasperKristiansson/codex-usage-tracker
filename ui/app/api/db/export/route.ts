@@ -77,7 +77,7 @@ export const GET = (request: NextRequest) => {
 
     if (dataset === "events") {
       const base = buildWhere(filters, {
-        timeColumn: "captured_at",
+        timeColumn: "captured_at_utc",
         modelColumn: "model",
         dirColumn: "directory",
         sourceColumn: "source"
@@ -95,7 +95,7 @@ export const GET = (request: NextRequest) => {
 
     if (dataset === "turns") {
       const base = buildWhere(filters, {
-        timeColumn: "captured_at",
+        timeColumn: "captured_at_utc",
         modelColumn: "model",
         dirColumn: "cwd",
         sourceColumn: "source"

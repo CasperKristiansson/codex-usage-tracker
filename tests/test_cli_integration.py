@@ -105,6 +105,30 @@ def _write_rollout_for_today(root: Path) -> Path:
                 },
             },
         },
+        {
+            "timestamp": timestamp,
+            "type": "event_msg",
+            "payload": {"type": "context_compacted"},
+        },
+        {
+            "timestamp": timestamp,
+            "type": "event_msg",
+            "payload": {
+                "type": "user_message",
+                "message": "please inspect the codex tracker",
+            },
+        },
+        {
+            "timestamp": timestamp,
+            "type": "response_item",
+            "payload": {
+                "type": "function_call",
+                "status": "failed",
+                "call_id": "call-1",
+                "name": "exec_command",
+                "arguments": {"cmd": "false"},
+            },
+        },
     ]
     rollout_path.write_text("\n".join(json.dumps(line) for line in lines))
     return rollout_path
@@ -183,6 +207,186 @@ class CliIntegrationTests(unittest.TestCase):
             content = out_path.read_text(encoding="utf-8")
             self.assertIn("event_type", content)
             self.assertIn("token_count", content)
+
+    def test_cli_insight_json_includes_summary_and_sessions(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            rollouts_dir = root / "rollouts"
+            _write_rollout_for_today(rollouts_dir)
+            db_path = root / "usage.sqlite"
+
+            result = _run_cli(
+                [
+                    "insight",
+                    "--db",
+                    str(db_path),
+                    "--rollouts",
+                    str(rollouts_dir),
+                    "--last",
+                    "total",
+                    "--json",
+                ]
+            )
+            payload = json.loads(result.stdout)
+
+            self.assertEqual(payload["summary"]["total_tokens"], 160)
+            self.assertEqual(payload["summary"]["messages"], 1)
+            self.assertEqual(payload["summary"]["tool_issue_signals"], 1)
+            self.assertEqual(payload["interesting_sessions"][0]["session_id"], "session-1")
+
+    def test_cli_sessions_interesting_outputs_ranked_session(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            rollouts_dir = root / "rollouts"
+            _write_rollout_for_today(rollouts_dir)
+            db_path = root / "usage.sqlite"
+
+            result = _run_cli(
+                [
+                    "sessions",
+                    "--db",
+                    str(db_path),
+                    "--rollouts",
+                    str(rollouts_dir),
+                    "--last",
+                    "total",
+                    "--interesting",
+                ]
+            )
+
+            self.assertIn("Interesting sessions", result.stdout)
+            self.assertIn("session-1", result.stdout)
+            self.assertIn("project", result.stdout)
+            self.assertNotIn("/tmp/project", result.stdout)
+
+    def test_cli_doctor_json_reports_storage_checks(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            db_path = root / "usage.sqlite"
+
+            result = _run_cli(["doctor", "--db", str(db_path), "--json"])
+            payload = json.loads(result.stdout)
+
+            self.assertEqual(payload["summary"]["fail"], 0)
+            check_names = {check["name"] for check in payload["checks"]}
+            self.assertIn("database", check_names)
+            self.assertIn("fts5", check_names)
+
+    def test_cli_compare_json_uses_smart_previous_window(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            rollouts_dir = root / "rollouts"
+            _write_rollout_for_today(rollouts_dir)
+            db_path = root / "usage.sqlite"
+
+            result = _run_cli(
+                [
+                    "compare",
+                    "--db",
+                    str(db_path),
+                    "--rollouts",
+                    str(rollouts_dir),
+                    "--today",
+                    "--json",
+                ]
+            )
+            payload = json.loads(result.stdout)
+
+            self.assertEqual(payload["current"]["total_tokens"], 160)
+            self.assertEqual(payload["baseline"]["total_tokens"], 0)
+            self.assertEqual(payload["deltas"]["total_tokens"]["delta"], 160.0)
+
+    def test_cli_pricing_lists_effective_rates_and_usage(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            rollouts_dir = root / "rollouts"
+            _write_rollout_for_today(rollouts_dir)
+            db_path = root / "usage.sqlite"
+
+            result = _run_cli(
+                [
+                    "pricing",
+                    "list",
+                    "--db",
+                    str(db_path),
+                    "--rollouts",
+                    str(rollouts_dir),
+                    "--last",
+                    "total",
+                    "--used-only",
+                    "--json",
+                ]
+            )
+            payload = json.loads(result.stdout)
+            rows = {row["model"]: row for row in payload["models"]}
+
+            self.assertIn("gpt-5.1-codex", rows)
+            self.assertEqual(rows["gpt-5.1-codex"]["source"], "default")
+            self.assertEqual(rows["gpt-5.1-codex"]["usage_events"], 1)
+            self.assertEqual(rows["gpt-5.1-codex"]["total_tokens"], 160)
+
+    def test_cli_pricing_set_and_remove_override(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            db_path = root / "usage.sqlite"
+            rollouts_dir = root / "rollouts"
+            rollouts_dir.mkdir()
+
+            set_result = _run_cli(
+                [
+                    "pricing",
+                    "set",
+                    "custom-model",
+                    "--db",
+                    str(db_path),
+                    "--input-rate",
+                    "2.5",
+                    "--cached-input-rate",
+                    "0.25",
+                    "--output-rate",
+                    "12",
+                    "--currency-label",
+                    "SEK",
+                    "--json",
+                ]
+            )
+            set_payload = json.loads(set_result.stdout)
+            self.assertEqual(set_payload["model"], "custom-model")
+
+            config = json.loads((root / "config.json").read_text(encoding="utf-8"))
+            self.assertEqual(config["currency_label"], "SEK")
+            self.assertEqual(
+                config["pricing"]["models"]["custom-model"]["input_rate"],
+                2.5,
+            )
+
+            list_result = _run_cli(
+                [
+                    "pricing",
+                    "list",
+                    "--db",
+                    str(db_path),
+                    "--rollouts",
+                    str(rollouts_dir),
+                    "--json",
+                ]
+            )
+            list_payload = json.loads(list_result.stdout)
+            rows = {row["model"]: row for row in list_payload["models"]}
+            self.assertEqual(rows["custom-model"]["source"], "override")
+
+            remove_result = _run_cli(
+                [
+                    "pricing",
+                    "remove",
+                    "custom-model",
+                    "--db",
+                    str(db_path),
+                    "--json",
+                ]
+            )
+            remove_payload = json.loads(remove_result.stdout)
+            self.assertTrue(remove_payload["removed"])
 
     def test_cli_status_uses_latest_snapshot_fields(self):
         with tempfile.TemporaryDirectory() as tmpdir:

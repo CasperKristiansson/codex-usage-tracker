@@ -69,10 +69,13 @@ test("sessions drawer shows tool calls and messages", async ({ page }) => {
   await expect(drawer).toBeVisible();
   await drawer.getByRole("button", { name: "Debug" }).click();
 
-  await expect(drawer.getByText("Tool calls")).toBeVisible();
+  await expect(drawer.getByText("Tool calls", { exact: true })).toBeVisible();
   await expect(drawer.getByText("git status").first()).toBeVisible();
 
   await drawer.getByPlaceholder("Turn index").fill("1");
   await drawer.getByRole("button", { name: "Load messages" }).click();
+  await expect(drawer.getByText("Show me token usage.")).toBeVisible();
+
+  await drawer.getByRole("button", { name: "Transcript" }).click();
   await expect(drawer.getByText("Show me token usage.")).toBeVisible();
 });

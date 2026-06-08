@@ -116,7 +116,7 @@ export const GET = (request: NextRequest) => {
         sessions: getCount("SELECT COUNT(*) as count FROM sessions"),
         turns: getCount("SELECT COUNT(*) as count FROM turns"),
         tool_calls: getCount("SELECT COUNT(*) as count FROM tool_calls"),
-        content_messages: getCount("SELECT COUNT(*) as count FROM content_messages"),
+        messages: getCount("SELECT COUNT(*) as count FROM messages"),
         activity_events: getCount("SELECT COUNT(*) as count FROM activity_events"),
         app_turns: getCount("SELECT COUNT(*) as count FROM app_turns"),
         app_items: getCount("SELECT COUNT(*) as count FROM app_items"),

@@ -23,7 +23,7 @@ const loadKpis = (
   pricing: PricingConfig
 ) => {
   const base = buildWhere(filters, {
-    timeColumn: "captured_at",
+    timeColumn: "captured_at_utc",
     modelColumn: "model",
     dirColumn: "directory",
     sourceColumn: "source"

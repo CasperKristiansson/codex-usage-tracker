@@ -5,9 +5,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Optional
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 INGEST_VERSION = 5
-STORAGE_PROFILE_VERSION = 1
+STORAGE_PROFILE_VERSION = 3
+TOOL_PAYLOAD_PROFILE_VERSION = 1
 
 LEAN_ACTIVITY_EVENT_TYPES = (
     "assistant_message",
@@ -29,6 +30,73 @@ REDUNDANT_ACTIVITY_INDEXES = (
 REDUNDANT_TOOL_CALL_INDEXES = (
     "tool_calls_captured_at_utc_idx",
 )
+REDUNDANT_LOCAL_TIME_INDEXES = (
+    "events_captured_at_idx",
+    "turns_captured_at_idx",
+    "tool_calls_captured_at_idx",
+    "content_messages_captured_at_idx",
+)
+REDUNDANT_SOURCE_TEXT_INDEXES = (
+    "events_source_idx",
+    "turns_source_idx",
+    "activity_events_source_idx",
+    "app_turns_source_idx",
+    "app_items_source_idx",
+    "tool_calls_source_idx",
+    "messages_source_idx",
+)
+SOURCE_TABLES = (
+    "events",
+    "turns",
+    "activity_events",
+    "app_turns",
+    "app_items",
+    "messages",
+    "tool_calls",
+)
+BULK_LOAD_INDEX_DDL = {
+    "events_captured_at_utc_idx": "CREATE INDEX IF NOT EXISTS events_captured_at_utc_idx ON events(captured_at_utc)",
+    "events_event_type_idx": "CREATE INDEX IF NOT EXISTS events_event_type_idx ON events(event_type)",
+    "events_event_type_captured_at_utc_idx": (
+        "CREATE INDEX IF NOT EXISTS events_event_type_captured_at_utc_idx "
+        "ON events(event_type, captured_at_utc)"
+    ),
+    "turns_session_idx": "CREATE INDEX IF NOT EXISTS turns_session_idx ON turns(session_id)",
+    "turns_captured_at_utc_idx": "CREATE INDEX IF NOT EXISTS turns_captured_at_utc_idx ON turns(captured_at_utc)",
+    "turns_captured_at_utc_desc_idx": (
+        "CREATE INDEX IF NOT EXISTS turns_captured_at_utc_desc_idx "
+        "ON turns(captured_at_utc DESC)"
+    ),
+    "app_turns_thread_idx": "CREATE INDEX IF NOT EXISTS app_turns_thread_idx ON app_turns(thread_id)",
+    "app_turns_turn_idx": "CREATE INDEX IF NOT EXISTS app_turns_turn_idx ON app_turns(turn_id)",
+    "app_items_turn_idx": "CREATE INDEX IF NOT EXISTS app_items_turn_idx ON app_items(turn_id)",
+    "app_items_type_idx": "CREATE INDEX IF NOT EXISTS app_items_type_idx ON app_items(item_type)",
+    "messages_session_idx": "CREATE INDEX IF NOT EXISTS messages_session_idx ON messages(session_id)",
+    "messages_captured_at_utc_idx": "CREATE INDEX IF NOT EXISTS messages_captured_at_utc_idx ON messages(captured_at_utc)",
+    "messages_session_ordinal_idx": (
+        "CREATE INDEX IF NOT EXISTS messages_session_ordinal_idx "
+        "ON messages(session_id, ordinal)"
+    ),
+    "messages_session_turn_idx": (
+        "CREATE INDEX IF NOT EXISTS messages_session_turn_idx "
+        "ON messages(session_id, turn_index, captured_at_utc)"
+    ),
+    "tool_calls_captured_at_utc_desc_idx": (
+        "CREATE INDEX IF NOT EXISTS tool_calls_captured_at_utc_desc_idx "
+        "ON tool_calls(captured_at_utc DESC)"
+    ),
+    "events_type_utc_session_idx": (
+        "CREATE INDEX IF NOT EXISTS events_type_utc_session_idx "
+        "ON events(event_type, captured_at_utc, session_id)"
+    ),
+    "tool_calls_session_idx": "CREATE INDEX IF NOT EXISTS tool_calls_session_idx ON tool_calls(session_id)",
+    "tool_calls_type_idx": "CREATE INDEX IF NOT EXISTS tool_calls_type_idx ON tool_calls(tool_type)",
+}
+BULK_LOAD_SOURCE_INDEX_DDL = {
+    f"{table}_source_id_idx": f"CREATE INDEX IF NOT EXISTS {table}_source_id_idx ON {table}(source_id)"
+    for table in SOURCE_TABLES
+}
+BULK_LOAD_INDEX_DDL.update(BULK_LOAD_SOURCE_INDEX_DDL)
 
 
 @dataclass
@@ -164,6 +232,8 @@ class MessageEvent:
     session_id: Optional[str] = None
     turn_index: Optional[int] = None
     source: Optional[str] = None
+    ordinal: Optional[int] = None
+    source_line: Optional[int] = None
 
 
 @dataclass
@@ -180,14 +250,19 @@ class ToolCallEvent:
     session_id: Optional[str] = None
     turn_index: Optional[int] = None
     source: Optional[str] = None
+    input_length: Optional[int] = None
+    output_length: Optional[int] = None
+    payload_truncated: bool = False
 
 
 class UsageStore:
     def __init__(self, path: Path):
         self.path = path
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.conn = sqlite3.connect(self.path)
+        self.conn = sqlite3.connect(self.path, timeout=30.0)
         self.conn.row_factory = sqlite3.Row
+        self._source_id_cache: dict[str, int] = {}
+        self.conn.execute("PRAGMA busy_timeout=30000")
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA synchronous=NORMAL")
         self.conn.execute("PRAGMA temp_store=MEMORY")
@@ -231,6 +306,14 @@ class UsageStore:
         )
         cur.execute(
             """
+            CREATE TABLE IF NOT EXISTS sources (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                path TEXT NOT NULL UNIQUE
+            )
+            """
+        )
+        cur.execute(
+            """
             CREATE TABLE IF NOT EXISTS events (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 captured_at TEXT NOT NULL,
@@ -267,7 +350,8 @@ class UsageStore:
                 directory TEXT,
                 session_id TEXT,
                 codex_version TEXT,
-                source TEXT
+                source TEXT,
+                source_id INTEGER
             )
             """
         )
@@ -346,7 +430,8 @@ class UsageStore:
                 has_user_instructions INTEGER,
                 has_developer_instructions INTEGER,
                 has_final_output_json_schema INTEGER,
-                source TEXT
+                source TEXT,
+                source_id INTEGER
             )
             """
         )
@@ -361,7 +446,8 @@ class UsageStore:
                 count INTEGER NOT NULL,
                 session_id TEXT,
                 turn_index INTEGER,
-                source TEXT
+                source TEXT,
+                source_id INTEGER
             )
             """
         )
@@ -375,7 +461,8 @@ class UsageStore:
                 started_at TEXT,
                 completed_at TEXT,
                 duration_ms INTEGER,
-                source TEXT
+                source TEXT,
+                source_id INTEGER
             )
             """
         )
@@ -396,22 +483,27 @@ class UsageStore:
                 output_bytes INTEGER,
                 tool_name TEXT,
                 web_search_action TEXT,
-                source TEXT
+                source TEXT,
+                source_id INTEGER
             )
             """
         )
         cur.execute(
             """
-            CREATE TABLE IF NOT EXISTS content_messages (
+            CREATE TABLE IF NOT EXISTS messages (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 captured_at TEXT NOT NULL,
                 captured_at_utc TEXT NOT NULL,
                 role TEXT NOT NULL,
                 message_type TEXT NOT NULL,
-                message TEXT NOT NULL,
+                content TEXT NOT NULL,
+                content_length INTEGER NOT NULL DEFAULT 0,
                 session_id TEXT,
                 turn_index INTEGER,
-                source TEXT
+                ordinal INTEGER,
+                source TEXT,
+                source_id INTEGER,
+                source_line INTEGER
             )
             """
         )
@@ -428,9 +520,13 @@ class UsageStore:
                 input_text TEXT,
                 output_text TEXT,
                 command TEXT,
+                input_length INTEGER,
+                output_length INTEGER,
+                payload_truncated INTEGER NOT NULL DEFAULT 0,
                 session_id TEXT,
                 turn_index INTEGER,
-                source TEXT
+                source TEXT,
+                source_id INTEGER
             )
             """
         )
@@ -466,12 +562,6 @@ class UsageStore:
         )
         cur.execute(
             """
-            CREATE INDEX IF NOT EXISTS events_captured_at_idx
-            ON events(captured_at)
-            """
-        )
-        cur.execute(
-            """
             CREATE INDEX IF NOT EXISTS events_captured_at_utc_idx
             ON events(captured_at_utc)
             """
@@ -492,12 +582,6 @@ class UsageStore:
             """
             CREATE INDEX IF NOT EXISTS turns_session_idx
             ON turns(session_id)
-            """
-        )
-        cur.execute(
-            """
-            CREATE INDEX IF NOT EXISTS turns_captured_at_idx
-            ON turns(captured_at)
             """
         )
         cur.execute(
@@ -532,20 +616,44 @@ class UsageStore:
         )
         cur.execute(
             """
-            CREATE INDEX IF NOT EXISTS content_messages_session_idx
-            ON content_messages(session_id)
+            CREATE INDEX IF NOT EXISTS messages_session_idx
+            ON messages(session_id)
             """
         )
         cur.execute(
             """
-            CREATE INDEX IF NOT EXISTS content_messages_captured_at_idx
-            ON content_messages(captured_at)
+            CREATE INDEX IF NOT EXISTS messages_captured_at_utc_idx
+            ON messages(captured_at_utc)
             """
         )
         cur.execute(
             """
-            CREATE INDEX IF NOT EXISTS content_messages_captured_at_utc_idx
-            ON content_messages(captured_at_utc)
+            CREATE INDEX IF NOT EXISTS messages_session_ordinal_idx
+            ON messages(session_id, ordinal)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS messages_session_turn_idx
+            ON messages(session_id, turn_index, captured_at_utc)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS turns_captured_at_utc_desc_idx
+            ON turns(captured_at_utc DESC)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS tool_calls_captured_at_utc_desc_idx
+            ON tool_calls(captured_at_utc DESC)
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS events_type_utc_session_idx
+            ON events(event_type, captured_at_utc, session_id)
             """
         )
         cur.execute(
@@ -562,12 +670,6 @@ class UsageStore:
         )
         cur.execute(
             """
-            CREATE INDEX IF NOT EXISTS tool_calls_captured_at_idx
-            ON tool_calls(captured_at)
-            """
-        )
-        cur.execute(
-            """
             INSERT OR IGNORE INTO meta (key, value) VALUES (?, ?)
             """,
             ("schema_version", str(SCHEMA_VERSION)),
@@ -580,6 +682,13 @@ class UsageStore:
         )
         self._ensure_event_columns()
         self._ensure_ingestion_columns()
+        self._ensure_message_columns()
+        self._ensure_tool_call_columns()
+        self._ensure_source_columns()
+        self._ensure_content_messages_view()
+        self._backfill_source_ids()
+        self._ensure_source_indexes()
+        self._ensure_messages_fts()
         self._ensure_schema_version()
         self.conn.commit()
 
@@ -594,6 +703,288 @@ class UsageStore:
                 self.conn.execute(
                     f"ALTER TABLE ingestion_files ADD COLUMN {column} {ddl}"
                 )
+
+    def _ensure_message_columns(self) -> None:
+        columns = self.conn.execute("PRAGMA table_info(messages)").fetchall()
+        existing = {row["name"] for row in columns}
+        additions = {
+            "content_length": "INTEGER NOT NULL DEFAULT 0",
+            "ordinal": "INTEGER",
+            "source_id": "INTEGER",
+            "source_line": "INTEGER",
+        }
+        for column, ddl in additions.items():
+            if column not in existing:
+                self.conn.execute(
+                    f"ALTER TABLE messages ADD COLUMN {column} {ddl}"
+                )
+        missing_lengths = self.conn.execute(
+            """
+            SELECT 1
+            FROM messages
+            WHERE content_length IS NULL
+               OR (content_length = 0 AND length(content) != 0)
+            LIMIT 1
+            """
+        ).fetchone()
+        if missing_lengths:
+            self.conn.execute(
+                """
+                UPDATE messages
+                SET content_length = length(content)
+                WHERE content_length IS NULL
+                   OR (content_length = 0 AND length(content) != 0)
+                """
+            )
+
+    def _ensure_tool_call_columns(self) -> None:
+        columns = self.conn.execute("PRAGMA table_info(tool_calls)").fetchall()
+        existing = {row["name"] for row in columns}
+        additions = {
+            "input_length": "INTEGER",
+            "output_length": "INTEGER",
+            "payload_truncated": "INTEGER NOT NULL DEFAULT 0",
+        }
+        for column, ddl in additions.items():
+            if column not in existing:
+                self.conn.execute(
+                    f"ALTER TABLE tool_calls ADD COLUMN {column} {ddl}"
+                )
+        missing_input_lengths = self.conn.execute(
+            """
+            SELECT 1
+            FROM tool_calls
+            WHERE input_length IS NULL AND input_text IS NOT NULL
+            LIMIT 1
+            """
+        ).fetchone()
+        if missing_input_lengths:
+            self.conn.execute(
+                """
+                UPDATE tool_calls
+                SET input_length = length(input_text)
+                WHERE input_length IS NULL AND input_text IS NOT NULL
+                """
+            )
+        missing_output_lengths = self.conn.execute(
+            """
+            SELECT 1
+            FROM tool_calls
+            WHERE output_length IS NULL AND output_text IS NOT NULL
+            LIMIT 1
+            """
+        ).fetchone()
+        if missing_output_lengths:
+            self.conn.execute(
+                """
+                UPDATE tool_calls
+                SET output_length = length(output_text)
+                WHERE output_length IS NULL AND output_text IS NOT NULL
+                """
+            )
+
+    def _ensure_source_columns(self) -> None:
+        for table in SOURCE_TABLES:
+            columns = self.conn.execute(f"PRAGMA table_info({table})").fetchall()
+            existing = {row["name"] for row in columns}
+            if "source_id" not in existing:
+                self.conn.execute(f"ALTER TABLE {table} ADD COLUMN source_id INTEGER")
+
+    def _backfill_source_ids(self) -> None:
+        for table in SOURCE_TABLES:
+            missing = self.conn.execute(
+                f"""
+                SELECT 1
+                FROM {table}
+                WHERE source_id IS NULL
+                  AND source IS NOT NULL
+                  AND source != ''
+                LIMIT 1
+                """
+            ).fetchone()
+            if not missing:
+                continue
+            self.conn.execute(
+                f"""
+                INSERT OR IGNORE INTO sources(path)
+                SELECT DISTINCT source
+                FROM {table}
+                WHERE source IS NOT NULL AND source != ''
+                """
+            )
+            self.conn.execute(
+                f"""
+                UPDATE {table}
+                SET source_id = (
+                    SELECT id
+                    FROM sources
+                    WHERE sources.path = {table}.source
+                )
+                WHERE source_id IS NULL
+                  AND source IS NOT NULL
+                  AND source != ''
+                """
+            )
+        self._source_id_cache.clear()
+
+    def _ensure_source_indexes(self) -> None:
+        for table in SOURCE_TABLES:
+            self.conn.execute(
+                f"CREATE INDEX IF NOT EXISTS {table}_source_id_idx ON {table}(source_id)"
+            )
+
+    def _ensure_messages_fts(self) -> None:
+        try:
+            row = self.conn.execute(
+                """
+                SELECT name
+                FROM sqlite_master
+                WHERE type = 'table' AND name = 'messages_fts'
+                """
+            ).fetchone()
+            had_fts = row is not None
+            if had_fts:
+                trigger_count = self.conn.execute(
+                    """
+                    SELECT COUNT(*) AS count
+                    FROM sqlite_master
+                    WHERE type = 'trigger'
+                      AND name IN ('messages_ai', 'messages_ad', 'messages_au')
+                    """
+                ).fetchone()["count"]
+                if int(trigger_count or 0) == 3:
+                    return
+            self.conn.executescript(
+                """
+                CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+                    content,
+                    content='messages',
+                    content_rowid='id',
+                    tokenize='porter unicode61'
+                );
+
+                CREATE TRIGGER IF NOT EXISTS messages_ai AFTER INSERT ON messages BEGIN
+                    INSERT INTO messages_fts(rowid, content) VALUES (new.id, new.content);
+                END;
+
+                CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages BEGIN
+                    INSERT INTO messages_fts(messages_fts, rowid, content)
+                    VALUES('delete', old.id, old.content);
+                END;
+
+                CREATE TRIGGER IF NOT EXISTS messages_au AFTER UPDATE ON messages BEGIN
+                    INSERT INTO messages_fts(messages_fts, rowid, content)
+                    VALUES('delete', old.id, old.content);
+                    INSERT INTO messages_fts(rowid, content) VALUES (new.id, new.content);
+                END;
+                """
+            )
+            if not had_fts:
+                self.conn.execute("INSERT INTO messages_fts(messages_fts) VALUES('rebuild')")
+        except sqlite3.OperationalError:
+            # FTS5 is available in normal Python/SQLite builds, but keeping the
+            # core DB usable is more important than failing startup on a minimal
+            # SQLite build.
+            return
+
+    def drop_messages_fts(self) -> None:
+        self.conn.executescript(
+            """
+            DROP TRIGGER IF EXISTS messages_ai;
+            DROP TRIGGER IF EXISTS messages_ad;
+            DROP TRIGGER IF EXISTS messages_au;
+            DROP TABLE IF EXISTS messages_fts;
+            """
+        )
+
+    def rebuild_messages_fts(self) -> None:
+        self.drop_messages_fts()
+        self._ensure_messages_fts()
+
+    def drop_bulk_load_indexes(self) -> None:
+        for index_name in BULK_LOAD_INDEX_DDL:
+            self._drop_index_if_exists(index_name)
+
+    def recreate_bulk_load_indexes(self) -> None:
+        for ddl in BULK_LOAD_INDEX_DDL.values():
+            self.conn.execute(ddl)
+
+    def prepare_bulk_load(self, include_messages: bool) -> None:
+        if include_messages:
+            self.drop_messages_fts()
+        self.drop_bulk_load_indexes()
+        self.conn.commit()
+
+    def finish_bulk_load(self, include_messages: bool) -> None:
+        self._backfill_source_ids()
+        self.recreate_bulk_load_indexes()
+        if include_messages:
+            self.rebuild_messages_fts()
+        self.conn.commit()
+
+    def _ensure_content_messages_view(self) -> None:
+        row = self.conn.execute(
+            """
+            SELECT type
+            FROM sqlite_master
+            WHERE name = 'content_messages'
+              AND type IN ('table', 'view')
+            """
+        ).fetchone()
+        if row and row["type"] == "table":
+            legacy_columns = self.conn.execute(
+                "PRAGMA table_info(content_messages)"
+            ).fetchall()
+            legacy_names = {col["name"] for col in legacy_columns}
+            if {"captured_at", "captured_at_utc", "role", "message_type", "message"}.issubset(
+                legacy_names
+            ):
+                self.conn.execute(
+                    """
+                    INSERT INTO messages (
+                        captured_at,
+                        captured_at_utc,
+                        role,
+                        message_type,
+                        content,
+                        content_length,
+                        session_id,
+                        turn_index,
+                        source
+                    )
+                    SELECT
+                        captured_at,
+                        captured_at_utc,
+                        role,
+                        message_type,
+                        message,
+                        length(message),
+                        session_id,
+                        turn_index,
+                        source
+                    FROM content_messages
+                    """
+                )
+            self.conn.execute("DROP TABLE content_messages")
+            row = None
+
+        if not row:
+            self.conn.execute(
+                """
+                CREATE VIEW IF NOT EXISTS content_messages AS
+                SELECT
+                    id,
+                    captured_at,
+                    captured_at_utc,
+                    role,
+                    message_type,
+                    content AS message,
+                    session_id,
+                    turn_index,
+                    source
+                FROM messages
+                """
+            )
 
     def _ensure_event_columns(self) -> None:
         columns = self.conn.execute("PRAGMA table_info(events)").fetchall()
@@ -622,6 +1013,9 @@ class UsageStore:
                 )
 
     def _ensure_schema_version(self) -> None:
+        current = self._get_meta("schema_version")
+        if current == str(SCHEMA_VERSION):
+            return
         self.conn.execute(
             """
             INSERT INTO meta (key, value)
@@ -658,12 +1052,14 @@ class UsageStore:
             return
 
         changed = False
-        for index_name in (*REDUNDANT_ACTIVITY_INDEXES, *REDUNDANT_TOOL_CALL_INDEXES):
+        for index_name in (
+            *REDUNDANT_ACTIVITY_INDEXES,
+            *REDUNDANT_TOOL_CALL_INDEXES,
+            *REDUNDANT_LOCAL_TIME_INDEXES,
+            *REDUNDANT_SOURCE_TEXT_INDEXES,
+        ):
             changed = self._drop_index_if_exists(index_name) or changed
 
-        messages_deleted = self.conn.execute(
-            "DELETE FROM content_messages"
-        ).rowcount
         tool_outputs_deleted = self.conn.execute(
             f"""
             DELETE FROM tool_calls
@@ -695,7 +1091,6 @@ class UsageStore:
         changed = any(
             count > 0
             for count in (
-                messages_deleted,
                 tool_outputs_deleted,
                 tool_rows_redacted,
                 activity_deleted,
@@ -783,6 +1178,34 @@ class UsageStore:
         ).fetchone()
         return row
 
+    def _source_id(self, source: Optional[str], create: bool = True) -> Optional[int]:
+        if not source:
+            return None
+        cached = self._source_id_cache.get(source)
+        if cached is not None:
+            return cached
+        if create:
+            self.conn.execute(
+                "INSERT OR IGNORE INTO sources(path) VALUES (?)",
+                (source,),
+            )
+        row = self.conn.execute(
+            "SELECT id FROM sources WHERE path = ?",
+            (source,),
+        ).fetchone()
+        if row is None:
+            return None
+        source_id = int(row["id"])
+        self._source_id_cache[source] = source_id
+        return source_id
+
+    def _delete_from_table_for_source(self, table: str, source: str) -> None:
+        source_id = self._source_id(source, create=False)
+        if source_id is not None:
+            self.conn.execute(f"DELETE FROM {table} WHERE source_id = ?", (source_id,))
+            return
+        self.conn.execute(f"DELETE FROM {table} WHERE source = ?", (source,))
+
     def insert_event(self, event: UsageEvent) -> None:
         cur = self.conn.cursor()
         cur.execute(
@@ -820,13 +1243,14 @@ class UsageStore:
                 rate_limit_plan_type,
                 model,
                 directory,
-                session_id,
-                codex_version,
-                source
-            ) VALUES (
-                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-            )
+	                session_id,
+	                codex_version,
+	                source,
+	                source_id
+	            ) VALUES (
+	                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+	                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+	            )
             """,
             (
                 event.captured_at,
@@ -861,11 +1285,12 @@ class UsageStore:
                 event.rate_limit_plan_type,
                 event.model,
                 event.directory,
-                event.session_id,
-                event.codex_version,
-                event.source,
-            ),
-        )
+	                event.session_id,
+	                event.codex_version,
+	                event.source,
+	                self._source_id(event.source),
+	            ),
+	        )
         self.conn.commit()
 
     def insert_events_bulk(
@@ -912,13 +1337,14 @@ class UsageStore:
                 rate_limit_plan_type,
                 model,
                 directory,
-                session_id,
-                codex_version,
-                source
-            ) VALUES (
-                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-            )
+	                session_id,
+	                codex_version,
+	                source,
+	                source_id
+	            ) VALUES (
+	                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+	                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+	            )
             """,
             [
                 (
@@ -954,10 +1380,11 @@ class UsageStore:
                     event.rate_limit_plan_type,
                     event.model,
                     event.directory,
-                    event.session_id,
-                    event.codex_version,
-                    event.source,
-                )
+	                    event.session_id,
+	                    event.codex_version,
+	                    event.source,
+	                    self._source_id(event.source),
+	                )
                 for event in batch
             ],
         )
@@ -1040,11 +1467,12 @@ class UsageStore:
                 reasoning_effort,
                 reasoning_summary,
                 has_base_instructions,
-                has_user_instructions,
-                has_developer_instructions,
-                has_final_output_json_schema,
-                source
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	                has_user_instructions,
+	                has_developer_instructions,
+	                has_final_output_json_schema,
+	                source,
+	                source_id
+	            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 turn.session_id,
@@ -1072,10 +1500,11 @@ class UsageStore:
                 1 if turn.has_base_instructions else 0,
                 1 if turn.has_user_instructions else 0,
                 1 if turn.has_developer_instructions else 0,
-                1 if turn.has_final_output_json_schema else 0,
-                turn.source,
-            ),
-        )
+	                1 if turn.has_final_output_json_schema else 0,
+	                turn.source,
+	                self._source_id(turn.source),
+	            ),
+	        )
         self.conn.commit()
 
     def insert_turns_bulk(
@@ -1106,11 +1535,12 @@ class UsageStore:
                 reasoning_effort,
                 reasoning_summary,
                 has_base_instructions,
-                has_user_instructions,
-                has_developer_instructions,
-                has_final_output_json_schema,
-                source
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	                has_user_instructions,
+	                has_developer_instructions,
+	                has_final_output_json_schema,
+	                source,
+	                source_id
+	            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
@@ -1139,9 +1569,10 @@ class UsageStore:
                     1 if turn.has_base_instructions else 0,
                     1 if turn.has_user_instructions else 0,
                     1 if turn.has_developer_instructions else 0,
-                    1 if turn.has_final_output_json_schema else 0,
-                    turn.source,
-                )
+	                    1 if turn.has_final_output_json_schema else 0,
+	                    turn.source,
+	                    self._source_id(turn.source),
+	                )
                 for turn in batch
             ],
         )
@@ -1157,11 +1588,12 @@ class UsageStore:
                 captured_at_utc,
                 event_type,
                 event_name,
-                count,
-                session_id,
-                turn_index,
-                source
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	                count,
+	                session_id,
+	                turn_index,
+	                source,
+	                source_id
+	            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 event.captured_at,
@@ -1169,11 +1601,12 @@ class UsageStore:
                 event.event_type,
                 event.event_name,
                 event.count,
-                event.session_id,
-                event.turn_index,
-                event.source,
-            ),
-        )
+	                event.session_id,
+	                event.turn_index,
+	                event.source,
+	                self._source_id(event.source),
+	            ),
+	        )
         self.conn.commit()
 
     def insert_activity_events_bulk(
@@ -1191,11 +1624,12 @@ class UsageStore:
                 captured_at_utc,
                 event_type,
                 event_name,
-                count,
-                session_id,
-                turn_index,
-                source
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	                count,
+	                session_id,
+	                turn_index,
+	                source,
+	                source_id
+	            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
@@ -1204,10 +1638,11 @@ class UsageStore:
                     event.event_type,
                     event.event_name,
                     event.count,
-                    event.session_id,
-                    event.turn_index,
-                    event.source,
-                )
+	                    event.session_id,
+	                    event.turn_index,
+	                    event.source,
+	                    self._source_id(event.source),
+	                )
                 for event in batch
             ],
         )
@@ -1222,22 +1657,24 @@ class UsageStore:
                 thread_id,
                 turn_id,
                 status,
-                started_at,
-                completed_at,
-                duration_ms,
-                source
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+	                started_at,
+	                completed_at,
+	                duration_ms,
+	                source,
+	                source_id
+	            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 metric.thread_id,
                 metric.turn_id,
                 metric.status,
                 metric.started_at,
-                metric.completed_at,
-                metric.duration_ms,
-                metric.source,
-            ),
-        )
+	                metric.completed_at,
+	                metric.duration_ms,
+	                metric.source,
+	                self._source_id(metric.source),
+	            ),
+	        )
         self.conn.commit()
 
     def insert_app_turns_bulk(self, metrics: Iterable[AppTurnMetric]) -> int:
@@ -1250,11 +1687,12 @@ class UsageStore:
                 thread_id,
                 turn_id,
                 status,
-                started_at,
-                completed_at,
-                duration_ms,
-                source
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+	                started_at,
+	                completed_at,
+	                duration_ms,
+	                source,
+	                source_id
+	            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
@@ -1262,10 +1700,11 @@ class UsageStore:
                     metric.turn_id,
                     metric.status,
                     metric.started_at,
-                    metric.completed_at,
-                    metric.duration_ms,
-                    metric.source,
-                )
+	                    metric.completed_at,
+	                    metric.duration_ms,
+	                    metric.source,
+	                    self._source_id(metric.source),
+	                )
                 for metric in batch
             ],
         )
@@ -1286,11 +1725,12 @@ class UsageStore:
                 duration_ms,
                 command_name,
                 exit_code,
-                output_bytes,
-                tool_name,
-                web_search_action,
-                source
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	                output_bytes,
+	                tool_name,
+	                web_search_action,
+	                source,
+	                source_id
+	            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 metric.thread_id,
@@ -1304,11 +1744,12 @@ class UsageStore:
                 metric.command_name,
                 metric.exit_code,
                 metric.output_bytes,
-                metric.tool_name,
-                metric.web_search_action,
-                metric.source,
-            ),
-        )
+	                metric.tool_name,
+	                metric.web_search_action,
+	                metric.source,
+	                self._source_id(metric.source),
+	            ),
+	        )
         self.conn.commit()
 
     def insert_app_items_bulk(self, metrics: Iterable[AppItemMetric]) -> int:
@@ -1328,11 +1769,12 @@ class UsageStore:
                 duration_ms,
                 command_name,
                 exit_code,
-                output_bytes,
-                tool_name,
-                web_search_action,
-                source
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	                output_bytes,
+	                tool_name,
+	                web_search_action,
+	                source,
+	                source_id
+	            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
@@ -1347,10 +1789,11 @@ class UsageStore:
                     metric.command_name,
                     metric.exit_code,
                     metric.output_bytes,
-                    metric.tool_name,
-                    metric.web_search_action,
-                    metric.source,
-                )
+	                    metric.tool_name,
+	                    metric.web_search_action,
+	                    metric.source,
+	                    self._source_id(metric.source),
+	                )
                 for metric in batch
             ],
         )
@@ -1360,16 +1803,20 @@ class UsageStore:
     def insert_message(self, event: MessageEvent) -> None:
         self.conn.execute(
             """
-            INSERT INTO content_messages (
+            INSERT INTO messages (
                 captured_at,
                 captured_at_utc,
                 role,
                 message_type,
-                message,
+                content,
+                content_length,
                 session_id,
-                turn_index,
-                source
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	                turn_index,
+	                ordinal,
+	                source,
+	                source_id,
+	                source_line
+	            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 event.captured_at,
@@ -1377,11 +1824,15 @@ class UsageStore:
                 event.role,
                 event.message_type,
                 event.message,
+                len(event.message),
                 event.session_id,
-                event.turn_index,
-                event.source,
-            ),
-        )
+	                event.turn_index,
+	                event.ordinal,
+	                event.source,
+	                self._source_id(event.source),
+	                event.source_line,
+	            ),
+	        )
         self.conn.commit()
 
     def insert_messages_bulk(
@@ -1394,16 +1845,20 @@ class UsageStore:
             return 0
         self.conn.executemany(
             """
-            INSERT INTO content_messages (
+            INSERT INTO messages (
                 captured_at,
                 captured_at_utc,
                 role,
                 message_type,
-                message,
+                content,
+                content_length,
                 session_id,
-                turn_index,
-                source
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	                turn_index,
+	                ordinal,
+	                source,
+	                source_id,
+	                source_line
+	            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
@@ -1412,10 +1867,14 @@ class UsageStore:
                     event.role,
                     event.message_type,
                     event.message,
+                    len(event.message),
                     event.session_id,
-                    event.turn_index,
-                    event.source,
-                )
+	                    event.turn_index,
+	                    event.ordinal,
+	                    event.source,
+	                    self._source_id(event.source),
+	                    event.source_line,
+	                )
                 for event in batch
             ],
         )
@@ -1433,13 +1892,17 @@ class UsageStore:
                 tool_name,
                 call_id,
                 status,
-                input_text,
-                output_text,
-                command,
-                session_id,
-                turn_index,
-                source
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	                input_text,
+	                output_text,
+	                command,
+	                input_length,
+	                output_length,
+	                payload_truncated,
+	                session_id,
+	                turn_index,
+	                source,
+	                source_id
+	            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 event.captured_at,
@@ -1448,14 +1911,18 @@ class UsageStore:
                 event.tool_name,
                 event.call_id,
                 event.status,
-                event.input_text,
-                event.output_text,
-                event.command,
-                event.session_id,
-                event.turn_index,
-                event.source,
-            ),
-        )
+	                event.input_text,
+	                event.output_text,
+	                event.command,
+	                event.input_length,
+	                event.output_length,
+	                1 if event.payload_truncated else 0,
+	                event.session_id,
+	                event.turn_index,
+	                event.source,
+	                self._source_id(event.source),
+	            ),
+	        )
         self.conn.commit()
 
     def insert_tool_calls_bulk(
@@ -1475,13 +1942,17 @@ class UsageStore:
                 tool_name,
                 call_id,
                 status,
-                input_text,
-                output_text,
-                command,
-                session_id,
-                turn_index,
-                source
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	                input_text,
+	                output_text,
+	                command,
+	                input_length,
+	                output_length,
+	                payload_truncated,
+	                session_id,
+	                turn_index,
+	                source,
+	                source_id
+	            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
@@ -1491,13 +1962,17 @@ class UsageStore:
                     event.tool_name,
                     event.call_id,
                     event.status,
-                    event.input_text,
-                    event.output_text,
-                    event.command,
-                    event.session_id,
-                    event.turn_index,
-                    event.source,
-                )
+	                    event.input_text,
+	                    event.output_text,
+	                    event.command,
+	                    event.input_length,
+	                    event.output_length,
+	                    1 if event.payload_truncated else 0,
+	                    event.session_id,
+	                    event.turn_index,
+	                    event.source,
+	                    self._source_id(event.source),
+	                )
                 for event in batch
             ],
         )
@@ -1517,16 +1992,36 @@ class UsageStore:
             clauses.append("event_type = ?")
             params.append(event_type)
         if start:
-            clauses.append("captured_at >= ?")
+            clauses.append("captured_at_utc >= ?")
             params.append(start)
         if end:
-            clauses.append("captured_at <= ?")
+            clauses.append("captured_at_utc <= ?")
             params.append(end)
         where = ""
         if clauses:
             where = " WHERE " + " AND ".join(clauses)
-        query = f"SELECT * FROM events{where} ORDER BY captured_at"
+        query = f"SELECT * FROM events{where} ORDER BY captured_at_utc"
         cur = self.conn.execute(query, params)
+        return cur.fetchall()
+
+    def iter_usage_events(
+        self,
+        start: Optional[str] = None,
+        end: Optional[str] = None,
+    ) -> Iterable[sqlite3.Row]:
+        clauses = ["event_type IN ('usage_line', 'token_count')"]
+        params = []
+        if start:
+            clauses.append("captured_at_utc >= ?")
+            params.append(start)
+        if end:
+            clauses.append("captured_at_utc <= ?")
+            params.append(end)
+        where = " WHERE " + " AND ".join(clauses)
+        cur = self.conn.execute(
+            f"SELECT * FROM events{where} ORDER BY captured_at_utc",
+            params,
+        )
         return cur.fetchall()
 
     def latest_status(self) -> Optional[sqlite3.Row]:
@@ -1559,6 +2054,12 @@ class UsageStore:
 
     def file_needs_ingest(self, path: str, mtime_ns: int, size: int) -> bool:
         return self.file_needs_ingest_with_hash(path, mtime_ns, size, None)
+
+    def ingestion_file_count(self) -> int:
+        row = self.conn.execute(
+            "SELECT COUNT(*) AS count FROM ingestion_files"
+        ).fetchone()
+        return int(row["count"] or 0)
 
     def file_needs_ingest_with_hash(
         self, path: str, mtime_ns: int, size: int, content_hash: Optional[str]
@@ -1620,41 +2121,41 @@ class UsageStore:
             self.conn.commit()
 
     def delete_events_for_source(self, source: str, commit: bool = True) -> None:
-        self.conn.execute("DELETE FROM events WHERE source = ?", (source,))
+        self._delete_from_table_for_source("events", source)
         if commit:
             self.conn.commit()
 
     def delete_turns_for_source(self, source: str, commit: bool = True) -> None:
-        self.conn.execute("DELETE FROM turns WHERE source = ?", (source,))
+        self._delete_from_table_for_source("turns", source)
         if commit:
             self.conn.commit()
 
     def delete_activity_events_for_source(self, source: str, commit: bool = True) -> None:
-        self.conn.execute("DELETE FROM activity_events WHERE source = ?", (source,))
+        self._delete_from_table_for_source("activity_events", source)
         if commit:
             self.conn.commit()
 
     def delete_app_server_events_for_source(self, source: str, commit: bool = True) -> None:
-        self.conn.execute("DELETE FROM app_turns WHERE source = ?", (source,))
-        self.conn.execute("DELETE FROM app_items WHERE source = ?", (source,))
+        self._delete_from_table_for_source("app_turns", source)
+        self._delete_from_table_for_source("app_items", source)
         if commit:
             self.conn.commit()
 
     def delete_content_for_source(self, source: str, commit: bool = True) -> None:
-        self.conn.execute("DELETE FROM content_messages WHERE source = ?", (source,))
-        self.conn.execute("DELETE FROM tool_calls WHERE source = ?", (source,))
+        self._delete_from_table_for_source("messages", source)
+        self._delete_from_table_for_source("tool_calls", source)
         if commit:
             self.conn.commit()
 
     def purge_content(self, commit: bool = True) -> tuple[int, int]:
         cur = self.conn.cursor()
         messages = cur.execute(
-            "SELECT COUNT(*) AS count FROM content_messages"
+            "SELECT COUNT(*) AS count FROM messages"
         ).fetchone()["count"]
         tool_calls = cur.execute(
             "SELECT COUNT(*) AS count FROM tool_calls"
         ).fetchone()["count"]
-        self.conn.execute("DELETE FROM content_messages")
+        self.conn.execute("DELETE FROM messages")
         self.conn.execute("DELETE FROM tool_calls")
         if commit:
             self.conn.commit()
@@ -1668,17 +2169,32 @@ class UsageStore:
         """
         cur = self.conn.cursor()
         messages = cur.execute(
-            "SELECT COUNT(*) AS count FROM content_messages"
+            "SELECT COUNT(*) AS count FROM messages"
         ).fetchone()["count"]
         tool_rows = cur.execute(
             """
             SELECT COUNT(*) AS count
             FROM tool_calls
-            WHERE input_text IS NOT NULL OR output_text IS NOT NULL
+            WHERE call_id IS NOT NULL
+               OR input_text IS NOT NULL
+               OR output_text IS NOT NULL
+               OR command IS NOT NULL
             """
         ).fetchone()["count"]
-        self.conn.execute("DELETE FROM content_messages")
-        self.conn.execute("UPDATE tool_calls SET input_text = NULL, output_text = NULL")
+        self.conn.execute("DELETE FROM messages")
+        self.conn.execute(
+            """
+            UPDATE tool_calls
+            SET call_id = NULL,
+                input_text = NULL,
+                output_text = NULL,
+                command = NULL
+            WHERE call_id IS NOT NULL
+               OR input_text IS NOT NULL
+               OR output_text IS NOT NULL
+               OR command IS NOT NULL
+            """
+        )
         if commit:
             self.conn.commit()
         return int(messages or 0), int(tool_rows or 0)

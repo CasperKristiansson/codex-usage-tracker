@@ -15,7 +15,7 @@ type WhereOptions = {
 
 export const bucketExpression = (
   bucket: "hour" | "day",
-  column = "captured_at"
+  column = "captured_at_utc"
 ) => {
   if (bucket === "hour") {
     return `substr(${column}, 1, 13) || ':00:00'`;
@@ -27,7 +27,7 @@ export const buildWhere = (
   filters: NormalizedFilters,
   options: WhereOptions = {}
 ): WhereClause => {
-  const timeColumn = options.timeColumn ?? "captured_at";
+  const timeColumn = options.timeColumn ?? "captured_at_utc";
   const clauses: string[] = [];
   const params: Array<string | number> = [];
 
@@ -101,9 +101,9 @@ export const buildToolJoin = (filters: NormalizedFilters) => {
   const clauses: string[] = [];
   const params: Array<string | number> = [];
 
-  clauses.push(`tc.captured_at >= ?`);
+  clauses.push(`tc.captured_at_utc >= ?`);
   params.push(filters.from);
-  clauses.push(`tc.captured_at <= ?`);
+  clauses.push(`tc.captured_at_utc <= ?`);
   params.push(filters.to);
 
   if (filters.models.length) {

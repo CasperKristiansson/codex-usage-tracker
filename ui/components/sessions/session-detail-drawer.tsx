@@ -59,6 +59,22 @@ type MessageSample = {
   }>;
 };
 
+type SessionMessages = {
+  storage_disabled?: boolean;
+  next_cursor: number | null;
+  rows: Array<{
+    id: number;
+    captured_at_utc: string;
+    role: string;
+    message_type: string;
+    content: string;
+    content_length: number;
+    session_id: string | null;
+    turn_index: number | null;
+    ordinal: number | null;
+  }>;
+};
+
 export const SessionDetailDrawer = ({
   sessionId,
   open,
@@ -85,7 +101,7 @@ export const SessionDetailDrawer = ({
 
   const [drawerState, setDrawerState] = useState(() => ({
     sessionId: sessionId ?? null,
-    tab: "overview" as "overview" | "debug",
+    tab: "overview" as "overview" | "transcript" | "debug",
     turnInput: "",
     turnQuery: null as string | null
   }));
@@ -253,6 +269,18 @@ export const SessionDetailDrawer = ({
     disabled: !sessionId || !turnQuery || activeTab !== "debug"
   });
 
+  const transcriptKey = useMemo(() => {
+    if (!sessionId || activeTab !== "transcript") return null;
+    const params = new URLSearchParams();
+    params.set("session_id", sessionId);
+    params.set("limit", "250");
+    return `/api/sessions/messages?${params.toString()}`;
+  }, [activeTab, sessionId]);
+
+  const transcript = useApi<SessionMessages>(transcriptKey, {
+    disabled: !sessionId || activeTab !== "transcript"
+  });
+
   const turnNumber = Number(turnInput);
   const turnValid = turnInput === "" || !Number.isNaN(turnNumber);
 
@@ -271,6 +299,13 @@ export const SessionDetailDrawer = ({
             onClick={() => updateState({ tab: "overview" })}
           >
             Overview
+          </Button>
+          <Button
+            variant={activeTab === "transcript" ? "default" : "ghost"}
+            size="sm"
+            onClick={() => updateState({ tab: "transcript" })}
+          >
+            Transcript
           </Button>
           <Button
             variant={activeTab === "debug" ? "default" : "ghost"}
@@ -417,12 +452,67 @@ export const SessionDetailDrawer = ({
             </div>
           </div>
         </div>
+      ) : activeTab === "transcript" ? (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-xs font-semibold text-foreground">Transcript</div>
+            <Button size="sm" variant="outline" onClick={() => transcript.refetch()}>
+              Refresh
+            </Button>
+          </div>
+          {transcript.isLoading ? (
+            <Skeleton className="h-64 w-full" />
+          ) : transcript.error ? (
+            <ErrorState
+              description="We could not load the session transcript."
+              onRetry={transcript.refetch}
+            />
+          ) : transcript.data?.rows.length ? (
+            <div className="max-h-[70vh] space-y-3 overflow-auto pr-1">
+              {transcript.data.rows.map((row) => (
+                <div
+                  key={row.id}
+                  className="rounded-lg border border-border/20 bg-muted/20 px-3 py-3"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-foreground">{row.role}</span>
+                      <span className="rounded-full border border-border/30 px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                        {row.message_type}
+                      </span>
+                      {row.turn_index !== null ? (
+                        <span className="text-[11px] text-muted-foreground">
+                          Turn {row.turn_index}
+                        </span>
+                      ) : null}
+                    </div>
+                    <span className="text-muted-foreground">
+                      {formatTimestamp(row.captured_at_utc, settings.timezone)}
+                    </span>
+                  </div>
+                  <pre className="mt-3 whitespace-pre-wrap break-words text-[12px] leading-relaxed text-foreground/90">
+                    {row.content}
+                  </pre>
+                </div>
+              ))}
+              {transcript.data.next_cursor !== null ? (
+                <div className="rounded-lg border border-border/20 bg-muted/20 px-3 py-3 text-xs text-muted-foreground">
+                  Showing the first {transcript.data.rows.length.toLocaleString()} messages.
+                </div>
+              ) : null}
+            </div>
+          ) : transcript.data?.storage_disabled ? (
+            <EmptyState description="Message storage is not available for this database." />
+          ) : (
+            <EmptyState description="No messages are stored for this session." />
+          )}
+        </div>
       ) : (
         <div className="space-y-5">
           <div className="rounded-lg border border-border/20 bg-muted/20 px-3 py-3 text-xs text-muted-foreground">
-            Debug endpoints are capped at 200 rows. In the default privacy mode,
-            tool calls are metadata-only and message text is not stored unless
-            payload capture is enabled.
+            Debug endpoints are capped at 200 rows. Payload capture is the
+            default ingestion profile; older or explicitly redacted rows may
+            still be metadata-only.
           </div>
 
           <div>
@@ -559,7 +649,7 @@ export const SessionDetailDrawer = ({
               </div>
             ) : turnQuery && messageSamples.data?.storage_disabled ? (
               <div className="mt-3">
-                <EmptyState description="Message storage is disabled in the current privacy profile." />
+                <EmptyState description="Message storage is not available for this database." />
               </div>
             ) : turnQuery ? (
               <div className="mt-3">

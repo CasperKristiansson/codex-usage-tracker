@@ -108,7 +108,7 @@ export const GET = (request: NextRequest) => {
     const lastStats = parseLastIngestStats(lastStatsRow?.value ?? null);
 
     const base = buildWhere(filters, {
-      timeColumn: "captured_at",
+      timeColumn: "captured_at_utc",
       modelColumn: "model",
       dirColumn: "directory",
       sourceColumn: "source"

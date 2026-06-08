@@ -72,7 +72,7 @@ export default function SettingsPage() {
   const [timezoneDraft, setTimezoneDraft] = useState(settings.timezone);
   const [isSavingTimezone, setIsSavingTimezone] = useState(false);
   const [timezoneError, setTimezoneError] = useState<string | null>(null);
-  const [capturePayloadsDraft, setCapturePayloadsDraft] = useState(false);
+  const [capturePayloadsDraft, setCapturePayloadsDraft] = useState(true);
   const [isSavingPrivacy, setIsSavingPrivacy] = useState(false);
   const [privacyError, setPrivacyError] = useState<string | null>(null);
 
@@ -405,13 +405,13 @@ export default function SettingsPage() {
                 type="checkbox"
                 checked={capturePayloadsDraft}
                 onChange={(event) => setCapturePayloadsDraft(event.target.checked)}
-                disabled={isSavingPrivacy}
+                disabled
               />
               <span className="leading-5">
-                Store full message text and tool call payloads in the DB
+                Store message text and capped tool call payload previews in the DB
                 <span className="block text-muted-foreground/80">
-                  When disabled (default), the DB will not store messages, and tool call input/output
-                  payloads are redacted. Existing payloads remain until you run{" "}
+                  Payload capture is the default ingestion profile. To intentionally remove stored
+                  payloads, run{" "}
                   <span className="font-mono text-foreground">codex-track purge-payloads</span>{" "}
                   (then optionally{" "}
                   <span className="font-mono text-foreground">codex-track vacuum</span>).
@@ -425,7 +425,7 @@ export default function SettingsPage() {
               <Button
                 size="sm"
                 variant="ghost"
-                onClick={() => setCapturePayloadsDraft(false)}
+                onClick={() => setCapturePayloadsDraft(true)}
                 disabled={isSavingPrivacy}
               >
                 Reset default

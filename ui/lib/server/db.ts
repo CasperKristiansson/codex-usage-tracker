@@ -49,11 +49,6 @@ const resolvePythonPath = () => {
 
 const ensureDbExists = (dbPath: string) => {
   if (initCache.has(dbPath)) return;
-  if (fs.existsSync(dbPath)) {
-    initCache.add(dbPath);
-    return;
-  }
-
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
 
   const python = process.env.PYTHON ?? "python";

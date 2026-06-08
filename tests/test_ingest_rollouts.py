@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SRC_PATH = str(ROOT / "src")
 sys.path.insert(0, SRC_PATH)
 
+from codex_usage_tracker.cli import DEFAULT_INGEST_WORKERS
 from codex_usage_tracker.store import ActivityEvent, MessageEvent, ToolCallEvent, UsageStore
 
 
@@ -214,26 +215,28 @@ class RolloutIngestTests(unittest.TestCase):
                 self.assertEqual(marker_count, 1)
 
                 activity_types = {
-                row[0]
-                for row in conn.execute(
-                    "SELECT DISTINCT event_type FROM activity_events"
-                ).fetchall()
+                    row[0]
+                    for row in conn.execute(
+                        "SELECT DISTINCT event_type FROM activity_events"
+                    ).fetchall()
                 }
-                self.assertIn("user_message", activity_types)
-                self.assertIn("tool_call", activity_types)
-                self.assertIn("tool_name", activity_types)
+                self.assertEqual(activity_types, {"user_image", "user_local_image"})
 
                 tool_rows = conn.execute(
-                    "SELECT tool_type, tool_name, command, input_text, output_text FROM tool_calls ORDER BY captured_at_utc"
+                    "SELECT tool_type, tool_name, command, input_text, output_text, input_length, output_length, payload_truncated FROM tool_calls ORDER BY captured_at_utc"
                 ).fetchall()
                 self.assertEqual(len(tool_rows), 3)
                 self.assertEqual(tool_rows[0][0], "local_shell")
                 self.assertIn("git", tool_rows[0][2] or "")
+                self.assertEqual(tool_rows[0][7], 0)
                 self.assertEqual(tool_rows[1][0], "function_call")
                 self.assertEqual(tool_rows[1][1], "exec_command")
                 self.assertIsNotNone(tool_rows[1][3])
+                self.assertEqual(tool_rows[1][5], len(tool_rows[1][3]))
                 self.assertEqual(tool_rows[2][0], "function_call_output")
                 self.assertIsNotNone(tool_rows[2][4])
+                self.assertEqual(tool_rows[2][6], len(tool_rows[2][4]))
+                self.assertEqual(tool_rows[2][7], 0)
 
                 message_row = conn.execute(
                 "SELECT role, message_type, message FROM content_messages"
@@ -245,7 +248,36 @@ class RolloutIngestTests(unittest.TestCase):
             finally:
                 conn.close()
 
-    def test_ingest_rollout_defaults_to_no_payloads(self):
+    def test_with_payloads_caps_large_tool_payloads(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            rollouts_dir = root / "rollouts"
+            rollout_path = _write_rollout_file(rollouts_dir)
+            lines = [json.loads(line) for line in rollout_path.read_text().splitlines()]
+            large_output = "x" * 5000
+            lines[-1]["payload"]["output"] = {"stdout": large_output}
+            rollout_path.write_text("\n".join(json.dumps(line) for line in lines))
+            os.utime(rollout_path, None)
+
+            db_path = root / "usage.sqlite"
+            _run_export(rollouts_dir, db_path, extra_args=["--with-payloads"])
+
+            conn = sqlite3.connect(db_path)
+            try:
+                row = conn.execute(
+                    """
+                    SELECT length(output_text), output_length, payload_truncated
+                    FROM tool_calls
+                    WHERE tool_type = 'function_call_output'
+                    """
+                ).fetchone()
+                self.assertEqual(row[0], 4096)
+                self.assertGreater(row[1], row[0])
+                self.assertEqual(row[2], 1)
+            finally:
+                conn.close()
+
+    def test_ingest_rollout_defaults_to_payloads(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             rollouts_dir = root / "rollouts"
@@ -259,23 +291,25 @@ class RolloutIngestTests(unittest.TestCase):
                 messages = conn.execute(
                     "SELECT COUNT(*) FROM content_messages"
                 ).fetchone()[0]
-                self.assertEqual(tool_calls, 2)
-                self.assertEqual(messages, 0)
+                self.assertEqual(tool_calls, 3)
+                self.assertEqual(messages, 1)
 
                 tool_rows = conn.execute(
                     "SELECT tool_type, tool_name, call_id, command, input_text, output_text FROM tool_calls ORDER BY captured_at_utc"
                 ).fetchall()
                 self.assertEqual(tool_rows[0][0], "local_shell")
-                self.assertIsNone(tool_rows[0][2])
-                self.assertIsNone(tool_rows[0][3])
-                self.assertIsNone(tool_rows[0][4])
+                self.assertIsNotNone(tool_rows[0][2])
+                self.assertIsNotNone(tool_rows[0][3])
+                self.assertIsNotNone(tool_rows[0][4])
                 self.assertIsNone(tool_rows[0][5])
                 self.assertEqual(tool_rows[1][0], "function_call")
                 self.assertEqual(tool_rows[1][1], "exec_command")
-                self.assertIsNone(tool_rows[1][2])
+                self.assertIsNotNone(tool_rows[1][2])
                 self.assertIsNone(tool_rows[1][3])
-                self.assertIsNone(tool_rows[1][4])
+                self.assertIsNotNone(tool_rows[1][4])
                 self.assertIsNone(tool_rows[1][5])
+                self.assertEqual(tool_rows[2][0], "function_call_output")
+                self.assertIsNotNone(tool_rows[2][5])
 
                 events = conn.execute("SELECT COUNT(*) FROM events").fetchone()[0]
                 activity_types = {
@@ -286,6 +320,36 @@ class RolloutIngestTests(unittest.TestCase):
                 }
                 self.assertGreater(events, 0)
                 self.assertEqual(activity_types, {"user_image", "user_local_image"})
+            finally:
+                conn.close()
+
+    def test_ingest_workers_default_to_all_cpus(self):
+        self.assertEqual(DEFAULT_INGEST_WORKERS, max(1, os.cpu_count() or 1))
+
+    def test_default_ingest_preserves_existing_payloads(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            rollouts_dir = root / "rollouts"
+            _write_rollout_file(rollouts_dir)
+            db_path = root / "usage.sqlite"
+
+            _run_export(rollouts_dir, db_path, extra_args=["--with-payloads"])
+            _run_export(rollouts_dir, db_path)
+
+            conn = sqlite3.connect(db_path)
+            try:
+                self.assertEqual(
+                    conn.execute("SELECT COUNT(*) FROM content_messages").fetchone()[0],
+                    1,
+                )
+                row = conn.execute(
+                    """
+                    SELECT input_text, output_text
+                    FROM tool_calls
+                    WHERE tool_type = 'function_call_output'
+                    """
+                ).fetchone()
+                self.assertIsNotNone(row[1])
             finally:
                 conn.close()
 
@@ -318,7 +382,7 @@ class RolloutIngestTests(unittest.TestCase):
             finally:
                 conn.close()
 
-    def test_storage_profile_migration_cleans_existing_rows_and_vacuums(self):
+    def test_storage_profile_migration_cleans_existing_dead_rows_and_vacuums(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "usage.sqlite"
             store = UsageStore(db_path)
@@ -414,7 +478,7 @@ class RolloutIngestTests(unittest.TestCase):
                 conn.row_factory = sqlite3.Row
                 conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
                 self.assertEqual(
-                    conn.execute("SELECT COUNT(*) FROM content_messages").fetchone()[0], 0
+                    conn.execute("SELECT COUNT(*) FROM content_messages").fetchone()[0], 1500
                 )
                 tool_counts = [
                     tuple(row)
@@ -443,7 +507,7 @@ class RolloutIngestTests(unittest.TestCase):
                 storage_version = conn.execute(
                     "SELECT value FROM meta WHERE key = 'storage_profile_version'"
                 ).fetchone()[0]
-                self.assertEqual(storage_version, "1")
+                self.assertEqual(storage_version, "3")
 
             after_size = db_path.stat().st_size
             self.assertLess(after_size, before_size)
