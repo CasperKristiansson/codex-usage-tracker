@@ -269,15 +269,23 @@ Reports estimate cost using built-in pricing **per 1M tokens**:
 
 | Model               | Input | Cached input | Output |
 | ------------------- | ----: | -----------: | -----: |
+| `gpt-5.6-sol`       |  5.00 |        0.500 |  30.00 |
+| `gpt-5.6-terra`     |  2.50 |        0.250 |  15.00 |
+| `gpt-5.6-luna`      |  1.00 |        0.100 |   6.00 |
 | `gpt-5.2`           | 1.750 |        0.175 | 14.000 |
 | `gpt-5.4`           | 2.500 |        0.250 | 15.000 |
+| `gpt-5.4-mini`      | 0.750 |        0.075 |  4.500 |
 | `gpt-5.5`           | 5.000 |        0.500 | 30.000 |
 | `gpt-5.2-pro`       | 21.00 |            - | 168.00 |
 | `gpt-5.4-pro`       | 30.00 |            - | 180.00 |
 | `gpt-5.5-pro`       | 30.00 |            - | 180.00 |
 | `gpt-5.1-codex-max` |  1.25 |        0.125 |  10.00 |
 | `gpt-5.1-codex`     |  1.25 |        0.125 |  10.00 |
+| `gpt-5.1-codex-mini`|  0.25 |        0.025 |   2.00 |
 | `gpt-5.2-codex`     |  1.75 |        0.175 |  14.00 |
+
+The internal `codex-auto-review` label is estimated with GPT-5.3-Codex pricing,
+matching OpenAI's current statement that Codex code review uses GPT-5.3-Codex.
 
 For models that don't publish discounted cached-input pricing (for example `*-pro`),
 cached tokens are estimated at the regular input rate.

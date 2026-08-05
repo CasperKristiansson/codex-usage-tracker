@@ -51,6 +51,21 @@ def default_pricing() -> PricingConfig:
         models={
             # Note: these defaults are conservative and primarily used for local
             # estimation. Users can override via config.json.
+            "gpt-5.6-sol": PricingModel(
+                input_rate=5.000,
+                cached_input_rate=0.500,
+                output_rate=30.000,
+            ),
+            "gpt-5.6-terra": PricingModel(
+                input_rate=2.500,
+                cached_input_rate=0.250,
+                output_rate=15.000,
+            ),
+            "gpt-5.6-luna": PricingModel(
+                input_rate=1.000,
+                cached_input_rate=0.100,
+                output_rate=6.000,
+            ),
             "gpt-5.2": PricingModel(
                 input_rate=1.750,
                 cached_input_rate=0.175,
@@ -60,6 +75,11 @@ def default_pricing() -> PricingConfig:
                 input_rate=2.500,
                 cached_input_rate=0.250,
                 output_rate=15.000,
+            ),
+            "gpt-5.4-mini": PricingModel(
+                input_rate=0.750,
+                cached_input_rate=0.075,
+                output_rate=4.500,
             ),
             "gpt-5.5": PricingModel(
                 input_rate=5.000,
@@ -99,6 +119,11 @@ def default_pricing() -> PricingConfig:
                 input_rate=1.25,
                 cached_input_rate=0.125,
                 output_rate=10.00,
+            ),
+            "gpt-5.1-codex-mini": PricingModel(
+                input_rate=0.25,
+                cached_input_rate=0.025,
+                output_rate=2.00,
             ),
             "gpt-5.2-codex": PricingModel(
                 input_rate=1.75,
@@ -232,7 +257,9 @@ def estimate_event_cost(
 
 _MODEL_ALIASES: Dict[str, str] = {
     # Keep this small and explicit; overrides in config.json can always replace it.
-    "gpt-5.3-codex": "gpt-5.2-codex",
+    # Codex reports this internal label for automatic code-review work. OpenAI's
+    # Codex rate card says code review uses GPT-5.3-Codex.
+    "codex-auto-review": "gpt-5.3-codex",
     "gpt-5-codex": "gpt-5.2-codex",
     "gpt-5": "gpt-5.5",
     "gpt-5-pro": "gpt-5.5-pro",

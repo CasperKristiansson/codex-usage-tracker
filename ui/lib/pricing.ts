@@ -21,6 +21,21 @@ export const DEFAULT_PRICING: PricingConfig = {
   unit: "per_1m",
   per_unit: 1_000_000,
   models: {
+    "gpt-5.6-sol": {
+      input_rate: 5.0,
+      cached_input_rate: 0.5,
+      output_rate: 30.0
+    },
+    "gpt-5.6-terra": {
+      input_rate: 2.5,
+      cached_input_rate: 0.25,
+      output_rate: 15.0
+    },
+    "gpt-5.6-luna": {
+      input_rate: 1.0,
+      cached_input_rate: 0.1,
+      output_rate: 6.0
+    },
     "gpt-5.2": {
       input_rate: 1.75,
       cached_input_rate: 0.175,
@@ -30,6 +45,11 @@ export const DEFAULT_PRICING: PricingConfig = {
       input_rate: 2.5,
       cached_input_rate: 0.25,
       output_rate: 15.0
+    },
+    "gpt-5.4-mini": {
+      input_rate: 0.75,
+      cached_input_rate: 0.075,
+      output_rate: 4.5
     },
     "gpt-5.5": {
       input_rate: 5.0,
@@ -70,6 +90,11 @@ export const DEFAULT_PRICING: PricingConfig = {
       cached_input_rate: 0.125,
       output_rate: 10.0
     },
+    "gpt-5.1-codex-mini": {
+      input_rate: 0.25,
+      cached_input_rate: 0.025,
+      output_rate: 2.0
+    },
     "gpt-5.2-codex": {
       input_rate: 1.75,
       cached_input_rate: 0.175,
@@ -92,7 +117,9 @@ export const DEFAULT_PRICING: PricingConfig = {
 };
 
 const MODEL_ALIASES: Record<string, string> = {
-  "gpt-5.3-codex": "gpt-5.2-codex",
+  // Codex reports this internal label for automatic code-review work. OpenAI's
+  // Codex rate card says code review uses GPT-5.3-Codex.
+  "codex-auto-review": "gpt-5.3-codex",
   "gpt-5-codex": "gpt-5.2-codex",
   "gpt-5": "gpt-5.5",
   "gpt-5-pro": "gpt-5.5-pro"
