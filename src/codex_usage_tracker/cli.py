@@ -192,7 +192,12 @@ def _open_browser(url: str, delay: float = 0.8) -> None:
     threading.Thread(target=_runner, daemon=True).start()
 
 
-def _is_port_available(port: int, host: str = "127.0.0.1") -> bool:
+# Defense in depth: the dashboard has no application authentication,
+# so bind both launch modes to loopback.
+_WEB_HOST = "127.0.0.1"
+
+
+def _is_port_available(port: int, host: str = _WEB_HOST) -> bool:
     if port < 1 or port > 65535:
         return False
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
@@ -2363,7 +2368,7 @@ def main() -> None:
                 file=sys.stderr,
             )
         if not args.no_open:
-            _open_browser(f"http://localhost:{port}")
+            _open_browser(f"http://{_WEB_HOST}:{port}")
         repo_root = Path(__file__).resolve().parents[2]
         dist_root = _resolve_ui_dist(repo_root)
         if dist_root is not None:
@@ -2371,6 +2376,8 @@ def main() -> None:
             if server_js.exists():
                 env = os.environ.copy()
                 env["PORT"] = str(port)
+                # A free loopback port does not control Next's bind address.
+                env["HOSTNAME"] = _WEB_HOST
                 env.setdefault("NODE_ENV", "production")
                 env.setdefault("CODEX_USAGE_BACKEND_ROOT", str(repo_root))
                 env.setdefault("CODEX_USAGE_PYTHONPATH", str(repo_root / "src"))
@@ -2388,7 +2395,10 @@ def main() -> None:
         env = os.environ.copy()
         env["PORT"] = str(port)
         result = subprocess.run(
-            ["pnpm", "--dir", str(ui_root), "dev", "--port", str(port)],
+            [
+                "pnpm", "--dir", str(ui_root), "dev",
+                "--port", str(port), "--hostname", _WEB_HOST,
+            ],
             env=env,
             check=False,
         )

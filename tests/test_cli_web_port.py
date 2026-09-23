@@ -42,11 +42,14 @@ class CliWebPortTests(unittest.TestCase):
                     cli.main()
 
         self.assertEqual(exit_ctx.exception.code, 0)
-        open_browser.assert_called_once_with("http://localhost:3001")
+        open_browser.assert_called_once_with("http://127.0.0.1:3001")
         run_args, run_kwargs = run_mock.call_args
         self.assertEqual(
             run_args[0],
-            ["pnpm", "--dir", str(Path(__file__).resolve().parents[1] / "ui"), "dev", "--port", "3001"],
+            [
+                "pnpm", "--dir", str(Path(__file__).resolve().parents[1] / "ui"),
+                "dev", "--port", "3001", "--hostname", "127.0.0.1",
+            ],
         )
         self.assertEqual(run_kwargs["env"]["PORT"], "3001")
         self.assertIn("Port 3000 is unavailable; starting dashboard on 3001 instead.", stderr.getvalue())
@@ -67,6 +70,7 @@ class CliWebPortTests(unittest.TestCase):
                 mock.patch.object(cli, "_resolve_ui_dist", return_value=dist_root),
                 mock.patch.object(cli, "_open_browser"),
                 mock.patch.object(cli.subprocess, "run", return_value=process) as run_mock,
+                mock.patch.dict(cli.os.environ, {"HOSTNAME": "0.0.0.0"}),
                 mock.patch("sys.stderr", new=stderr),
             ):
                 with self.assertRaises(SystemExit) as exit_ctx:
@@ -76,6 +80,7 @@ class CliWebPortTests(unittest.TestCase):
         run_args, run_kwargs = run_mock.call_args
         self.assertEqual(run_args[0], ["node", str(server_js)])
         self.assertEqual(run_kwargs["env"]["PORT"], "3001")
+        self.assertEqual(run_kwargs["env"]["HOSTNAME"], "127.0.0.1")
         self.assertEqual(run_kwargs["cwd"], str(server_js.parent))
         self.assertIn("Port 3000 is unavailable; starting dashboard on 3001 instead.", stderr.getvalue())
 
